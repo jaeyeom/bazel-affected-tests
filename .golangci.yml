@@ -1,0 +1,85 @@
+version: "2"
+linters:
+  enable:
+    - cyclop
+    - depguard
+    - errcheck
+    - gocritic
+    - godot
+    - gosec
+    - govet
+    - iface
+    - ineffassign
+    - revive
+    - staticcheck
+    - tagliatelle
+    - unused
+    - wrapcheck
+  disable:
+    - testpackage
+  settings:
+    staticcheck:
+      checks: ["all"]
+    tagliatelle:
+      case:
+        rules:
+          json: camel
+          yaml: snake
+    cyclop:
+      max-complexity: 15
+      package-average: 0.0
+    iface:
+      enable:
+        - identical
+        - unused
+        - opaque
+        - unexported
+    depguard:
+      rules:
+        Base:
+          list-mode: lax
+          files:
+            - "$all"
+          deny:
+            - pkg: "log$"
+              desc: use log/slog instead
+            - pkg: "io/ioutil"
+              desc: "replaced by io and os packages since Go 1.16: https://tip.golang.org/doc/go1.16#ioutil"
+            - pkg: "syscall"
+              desc: "deprecated since Go 1.4, use golang.org/x/sys instead"
+        Main:
+          list-mode: strict
+          files:
+            - "$all"
+            - "!$test"
+          allow:
+            - $gostd
+            - "github.com/jaeyeom/bazel-affected-tests"
+            - "github.com/jaeyeom/go-cmdexec"
+            - gopkg.in/yaml.v3
+            - golang.org/x/sys
+          deny:
+            - pkg: "github.com/sirupsen/logrus"
+              desc: use log/slog instead
+        Test:
+          list-mode: lax
+          files:
+            - "$test"
+          deny:
+            - pkg: "github.com/stretchr/testify"
+              desc: "Please use standard library for tests"
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - cyclop
+          - funlen
+formatters:
+  exclusions:
+    generated: lax
