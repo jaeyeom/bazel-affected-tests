@@ -3,7 +3,7 @@ module github.com/jaeyeom/bazel-affected-tests
 go 1.24.4
 
 require (
-	github.com/jaeyeom/go-cmdexec v0.1.0
+	github.com/jaeyeom/go-cmdexec v0.2.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

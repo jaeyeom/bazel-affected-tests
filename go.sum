@@ -1,5 +1,5 @@
-github.com/jaeyeom/go-cmdexec v0.1.0 h1:s71oCk0L8SE5nTQ14e5Xdz/V1/LLqiUtJwEJDfxVTyk=
-github.com/jaeyeom/go-cmdexec v0.1.0/go.mod h1:kX8VGMLtKpMQIJ1JfTGjIqTqj5uPwtgVLLSTPvy6pks=
+github.com/jaeyeom/go-cmdexec v0.2.0 h1:knT3cLalReobSJKXAY+UdwzhuIRL2pCZs6ITpILoUuM=
+github.com/jaeyeom/go-cmdexec v0.2.0/go.mod h1:kX8VGMLtKpMQIJ1JfTGjIqTqj5uPwtgVLLSTPvy6pks=
 golang.org/x/sys v0.39.0 h1:CvCKL8MeisomCi6qNZ+wbb0DN9E5AATixKsvNtMoMFk=
 golang.org/x/sys v0.39.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
