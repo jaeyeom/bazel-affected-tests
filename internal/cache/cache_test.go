@@ -169,6 +169,109 @@ func TestCache_GetCacheKey(t *testing.T) {
 	if key7 != key8 {
 		t.Error("GetCacheKey() should return same key after adding MODULE.bazel file")
 	}
+
+	// The following subtests continue with the cumulative file state above.
+	// They share the CWD (tmpDir) and cache instance, so they run sequentially
+	// via t.Run (no t.Parallel) to avoid races.
+
+	t.Run("WORKSPACE.bazel does not affect key", func(t *testing.T) {
+		if err := os.WriteFile("WORKSPACE.bazel", []byte("# workspace bazel"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		key9, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if key8 != key9 {
+			t.Error("GetCacheKey() should return same key after adding WORKSPACE.bazel file")
+		}
+	})
+
+	t.Run("MODULE plain does not affect key", func(t *testing.T) {
+		if err := os.WriteFile("MODULE", []byte("# module plain"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		key, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if key8 != key {
+			t.Error("GetCacheKey() should return same key after adding MODULE file")
+		}
+	})
+
+	t.Run("unrelated files do not affect key", func(t *testing.T) {
+		if err := os.WriteFile("README.md", []byte("notes"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		key, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if key8 != key {
+			t.Error("GetCacheKey() should return same key after adding unrelated file")
+		}
+	})
+
+	t.Run("rename BUILD to BUILD.bazel changes key", func(t *testing.T) {
+		if err := os.MkdirAll("rename_case", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile("rename_case/BUILD", []byte("# same content"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		before, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if err := os.Rename("rename_case/BUILD", "rename_case/BUILD.bazel"); err != nil {
+			t.Fatal(err)
+		}
+		after, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if before == after {
+			t.Error("GetCacheKey() should change after renaming BUILD to BUILD.bazel")
+		}
+	})
+
+	t.Run("unstaged BUILD edit changes key", func(t *testing.T) {
+		before, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if err := os.WriteFile("src/BUILD.bazel", []byte("# src build changed unstaged"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		after, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if before == after {
+			t.Error("GetCacheKey() should change after unstaged BUILD edit")
+		}
+	})
+
+	t.Run("nested .bzl changes affect key", func(t *testing.T) {
+		if err := os.WriteFile("src/lib/rules.bzl", []byte("# nested bzl"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		key1, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if err := os.WriteFile("src/lib/rules.bzl", []byte("# nested bzl modified"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		key2, err := c.GetCacheKey()
+		if err != nil {
+			t.Fatalf("GetCacheKey() error = %v", err)
+		}
+		if key1 == key2 {
+			t.Error("GetCacheKey() should change after modifying nested .bzl file")
+		}
+	})
 }
 
 func TestCache_SetAndGet(t *testing.T) {
