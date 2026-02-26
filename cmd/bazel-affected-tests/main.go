@@ -52,10 +52,6 @@ func main() {
 	querier := query.NewBazelQuerier(cfg.debug)
 	allTests := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
 
-	// Filter and output results
-	filter := query.NewFormatTestFilter(stagedFiles, cfg.debug)
-	filteredTests := filter.Filter(allTests)
-
 	// Load config and add pattern-matched targets
 	repoCfg, err := config.LoadConfig()
 	if err != nil {
@@ -69,7 +65,7 @@ func main() {
 	}
 
 	// Merge and output
-	outputResults(filteredTests, configTargets)
+	outputResults(allTests, configTargets)
 }
 
 type cliConfig struct {
@@ -157,14 +153,6 @@ func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Ca
 	for _, pkg := range packages {
 		tests := getPackageTests(pkg, querier, c, cacheKey, noCache)
 		for _, test := range tests {
-			allTestsMap[test] = true
-		}
-	}
-
-	// Always check for format tests
-	formatTests, err := querier.FindAffectedTests([]string{"//tools/format"})
-	if err == nil {
-		for _, test := range formatTests {
 			allTestsMap[test] = true
 		}
 	}

@@ -72,12 +72,6 @@ func TestFindAffectedTests_SinglePackageWithTests(t *testing.T) {
 		Once().
 		Build()
 
-	// Mock format tests query
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("//tools/format:format_test", 0).
-		Once().
-		Build()
-
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 	if err != nil {
 		t.Fatalf("FindAffectedTests failed: %v", err)
@@ -87,7 +81,6 @@ func TestFindAffectedTests_SinglePackageWithTests(t *testing.T) {
 		"//pkg/foo:foo_test",
 		"//pkg/foo:bar_test",
 		"//other/pkg:other_test",
-		"//tools/format:format_test",
 	}
 
 	if len(tests) != len(expectedTests) {
@@ -126,11 +119,6 @@ func TestFindAffectedTests_MultiplePackages(t *testing.T) {
 		WillSucceed("", 0).
 		Build()
 
-	// Format tests
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("//tools/format:format_test", 0).
-		Build()
-
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo", "//pkg/bar"})
 	if err != nil {
 		t.Fatalf("FindAffectedTests failed: %v", err)
@@ -139,7 +127,6 @@ func TestFindAffectedTests_MultiplePackages(t *testing.T) {
 	expectedTests := []string{
 		"//pkg/foo:foo_test",
 		"//pkg/bar:bar_test",
-		"//tools/format:format_test",
 	}
 
 	if len(tests) != len(expectedTests) {
@@ -159,11 +146,6 @@ func TestFindAffectedTests_DeduplicatePackages(t *testing.T) {
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Once().
-		Build()
-
-	// Format tests
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
 		Build()
 
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo", "//pkg/foo", "//pkg/foo"})
@@ -192,9 +174,6 @@ func TestFindAffectedTests_EmptyQueryResults(t *testing.T) {
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
-		Build()
 
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 	if err != nil {
@@ -220,19 +199,14 @@ func TestFindAffectedTests_QueryErrorHandling(t *testing.T) {
 		WillFail("query error", 1).
 		Build()
 
-	// Format tests succeed
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("//tools/format:test", 0).
-		Build()
-
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 	if err != nil {
 		t.Fatalf("FindAffectedTests should not fail on query errors: %v", err)
 	}
 
-	// Should still get results from successful queries
-	if len(tests) < 2 {
-		t.Errorf("Expected at least 2 tests despite one query failing, got %d", len(tests))
+	// Should still get results from the successful query
+	if len(tests) < 1 {
+		t.Errorf("Expected at least 1 test despite one query failing, got %d", len(tests))
 	}
 }
 
@@ -257,10 +231,6 @@ func TestFindAffectedTests_BazelEmptyResultExitCode(t *testing.T) {
 		WillSucceed("", 0).
 		Build()
 
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
-		Build()
-
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 	if err != nil {
 		t.Fatalf("FindAffectedTests should handle empty result exit codes: %v", err)
@@ -282,10 +252,6 @@ func TestFindAffectedTests_DeduplicateTestTargets(t *testing.T) {
 
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("//pkg/foo:shared_test\n//other:test", 0).
-		Build()
-
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
 		Build()
 
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
@@ -607,51 +573,6 @@ func TestFindAffectedTests_FailOnError_ExternalTestDeps(t *testing.T) {
 	}
 }
 
-func TestFindAffectedTests_FailOnError_FormatTests(t *testing.T) {
-	// Save and restore env var
-	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
-	defer func() {
-		if hadEnv {
-			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
-		} else {
-			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
-		}
-	}()
-
-	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
-
-	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
-
-	// Package queries succeed
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
-		WillSucceed("//pkg/foo:test", 0).
-		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
-		Build()
-
-	// Format tests query fails
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillFail("query error", 1).
-		Build()
-
-	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
-
-	// Should return error when failOnError is true
-	if err == nil {
-		t.Fatal("Expected error when failOnError=true and format tests query fails")
-	}
-
-	if !contains(err.Error(), "format tests") {
-		t.Errorf("Expected error message to mention 'format tests', got: %v", err)
-	}
-
-	if tests != nil {
-		t.Errorf("Expected nil tests on error, got %v", tests)
-	}
-}
-
 func TestFindAffectedTests_FailOnError_False(t *testing.T) {
 	// Save and restore env var
 	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
@@ -678,20 +599,15 @@ func TestFindAffectedTests_FailOnError_False(t *testing.T) {
 		WillSucceed("//other:test", 0).
 		Build()
 
-	// Format tests succeed
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("//tools/format:test", 0).
-		Build()
-
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 	// Should NOT return error when failOnError is false
 	if err != nil {
 		t.Fatalf("Expected no error when failOnError=false, got: %v", err)
 	}
 
-	// Should still get results from successful queries
-	if len(tests) != 2 {
-		t.Errorf("Expected 2 tests from successful queries, got %d: %v", len(tests), tests)
+	// Should still get results from the successful query
+	if len(tests) != 1 {
+		t.Errorf("Expected 1 test from successful queries, got %d: %v", len(tests), tests)
 	}
 }
 

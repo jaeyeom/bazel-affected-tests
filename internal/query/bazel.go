@@ -91,20 +91,6 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 		}
 	}
 
-	// Always include format tests (will be filtered later based on file types)
-	formatTests, err := q.query("//tools/format:* intersect kind('.*_test rule', //...)")
-	if err != nil {
-		if q.failOnError {
-			return nil, fmt.Errorf("failed to query format tests: %w", err)
-		}
-		slog.Warn("Error querying format tests, continuing...", "error", err)
-	} else {
-		slog.Debug("Format test targets found", "count", len(formatTests))
-		for _, test := range formatTests {
-			testsSet[test] = true
-		}
-	}
-
 	// Convert set to slice
 	for test := range testsSet {
 		allTests = append(allTests, test)

@@ -111,8 +111,6 @@ case "$query" in
   "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)")
     printf '%%s\n' "//dep:dep_test"
     ;;
-  "kind('.*_test rule', //tools/format:*)"|"rdeps(//..., //tools/format:*) intersect kind('.*_test rule', //...)"|"//tools/format:* intersect kind('.*_test rule', //...)")
-    ;;
   *)
     ;;
 esac
@@ -133,12 +131,12 @@ esac
 		runCommand(t, repoDir, env, binPath, args...)
 	}
 
-	// Each full run queries: 3 for //pkg/foo + 3 for //tools/format = 6 queries.
-	// A cache hit for //pkg/foo still runs 3 format queries = 3 queries.
-	const fullRunQueries = 6
-	const cacheHitQueries = 3 // only format queries
+	// Each full run queries: 2 for //pkg/foo (same-package + rdeps).
+	// A cache hit for //pkg/foo runs 0 queries.
+	const fullRunQueries = 2
+	const cacheHitQueries = 0
 
-	// First run: full queries for //pkg/foo and //tools/format.
+	// First run: full queries for //pkg/foo.
 	runCLI()
 	wantTotal := fullRunQueries
 	if got := lineCount(t, logPath); got != wantTotal {

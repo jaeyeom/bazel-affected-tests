@@ -46,10 +46,9 @@ func TestGetPackageTests_CacheMissQueriesAndStores(t *testing.T) {
 	cacheKey := "k1"
 	pkg := "//pkg/foo"
 
-	// FindAffectedTests internally makes 3 bazel queries per package:
+	// FindAffectedTests internally makes 2 bazel queries per package:
 	// 1. kind('.*_test rule', PKG:*)         — same-package tests
 	// 2. rdeps(//..., PKG:*) intersect ...   — reverse-dep tests
-	// 3. //tools/format:* intersect ...      — format-path tests
 	mockExec := executor.NewMockExecutor()
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:unit_test", 0).
@@ -57,10 +56,6 @@ func TestGetPackageTests_CacheMissQueriesAndStores(t *testing.T) {
 		Build()
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("//dep:dep_test", 0).
-		Once().
-		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
 		Once().
 		Build()
 	q := query.NewBazelQuerierWithExecutor(mockExec, false)
@@ -101,10 +96,6 @@ func TestGetPackageTests_NoCacheFlagBypassesReadAndWrite(t *testing.T) {
 		WillSucceed("", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
-		Once().
-		Build()
 	q := query.NewBazelQuerierWithExecutor(mockExec, false)
 
 	got := getPackageTests(pkg, q, c, cacheKey, true)
@@ -139,10 +130,6 @@ func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 		WillSucceed("", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
-		Once().
-		Build()
 	q := query.NewBazelQuerierWithExecutor(mockExec, false)
 
 	got := getPackageTests(pkg, q, c, "", false)
@@ -160,7 +147,7 @@ func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 	}
 }
 
-func TestCollectAllTests_DeduplicatesAcrossPackagesAndFormat(t *testing.T) {
+func TestCollectAllTests_DeduplicatesAcrossPackages(t *testing.T) {
 	tmpDir := t.TempDir()
 	c := cache.NewCache(tmpDir, false)
 	cacheKey := "k1"
@@ -172,61 +159,11 @@ func TestCollectAllTests_DeduplicatesAcrossPackagesAndFormat(t *testing.T) {
 	}
 
 	mockExec := executor.NewMockExecutor()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //tools/format:*)").
-		WillSucceed("//shared:t", 0).
-		Once().
-		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //tools/format:*) intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
-		Once().
-		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillSucceed("", 0).
-		Once().
-		Build()
 	q := query.NewBazelQuerierWithExecutor(mockExec, false)
 
 	got := sorted(collectAllTests([]string{"//pkg/foo", "//pkg/bar"}, q, c, cacheKey, false))
 	want := sorted([]string{"//pkg/foo:t1", "//pkg/bar:t2", "//shared:t"})
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("collectAllTests() = %v, want %v", got, want)
-	}
-
-	if err := mockExec.AssertExpectationsMet(); err != nil {
-		t.Errorf("mock expectations not met: %v", err)
-	}
-}
-
-func TestCollectAllTests_FormatQueryErrorsIgnored(t *testing.T) {
-	tmpDir := t.TempDir()
-	c := cache.NewCache(tmpDir, false)
-	cacheKey := "k1"
-	if err := c.Set(cacheKey, "//pkg/foo", []string{"//pkg/foo:t1"}); err != nil {
-		t.Fatalf("Set() error: %v", err)
-	}
-
-	mockExec := executor.NewMockExecutor()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //tools/format:*)").
-		WillFail("query failed", 1).
-		Once().
-		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //tools/format:*) intersect kind('.*_test rule', //...)").
-		WillFail("query failed", 1).
-		Once().
-		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//tools/format:* intersect kind('.*_test rule', //...)").
-		WillFail("query failed", 1).
-		Once().
-		Build()
-	q := query.NewBazelQuerierWithExecutor(mockExec, false)
-
-	got := collectAllTests([]string{"//pkg/foo"}, q, c, cacheKey, false)
-	want := []string{"//pkg/foo:t1"}
-	if !reflect.DeepEqual(sorted(got), sorted(want)) {
-		t.Errorf("collectAllTests() = %v, want %v", got, want)
-	}
-
-	if err := mockExec.AssertExpectationsMet(); err != nil {
-		t.Errorf("mock expectations not met: %v", err)
 	}
 }

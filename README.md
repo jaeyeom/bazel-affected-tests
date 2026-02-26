@@ -9,8 +9,7 @@ staging area.
 - **Fast**: 10-100x faster than shell implementation with caching
 - **Smart Caching**: Caches results based on BUILD file content hashes
 - **Cross-platform**: Works on Linux, macOS, and Windows
-- **Format Test Filtering**: Only runs format tests for file types that changed
-- **Config File Support**: Add custom targets based on file patterns
+- **Config File Support**: Add custom targets based on file patterns (e.g., format tests)
 - **Debug Mode**: Detailed output for troubleshooting
 
 ## Installation
@@ -74,7 +73,6 @@ Make sure to run `go install` first to ensure the binary is in your PATH.
 3. **Test Discovery**: Uses `bazel query` to find:
    - Test targets within the same package
    - External test targets that depend on the package
-   - Format test targets (filtered by file type)
 4. **Caching**: Results are cached based on BUILD and `.bzl` file content hashes
 5. **Output**: Prints affected test targets, one per line
 
@@ -116,14 +114,6 @@ Cache structure:
     └── src__lib.json       # Cache for //src/lib package
 ```
 
-### Format Test Filtering
-
-Format tests are only included if corresponding file types are staged:
-- C++ files (`.cpp`, `.cc`, `.h`, etc.) → C++ format test
-- Go files (`.go`) → Go format test
-- Python files (`.py`) → Python format test
-- And so on for all supported languages
-
 ## Design
 
 This tool uses **package-level granularity** to identify affected tests. A Bazel package is a directory containing a BUILD file. When any file in a package is modified, the tool finds all tests affected by changes to that entire package.
@@ -131,7 +121,6 @@ This tool uses **package-level granularity** to identify affected tests. A Bazel
 It queries for:
 1. Test targets within the same package as modified files (using `kind('.*_test rule', //package:*)`)
 2. External test targets that depend on those packages (using `rdeps(//..., //package:*)`)
-3. Format tests (filtered by file type)
 
 ### Caching System
 
@@ -158,11 +147,40 @@ version: 1
 
 rules:
   - patterns:
+      - "**/*.go"
+    targets:
+      - "//tools/format:format_test_Go_with_gofmt"
+  - patterns:
+      - "**/*.py"
+    targets:
+      - "//tools/format:format_test_Python_with_ruff"
+  - patterns:
+      - "**/*.cpp"
+      - "**/*.cc"
+      - "**/*.cxx"
+      - "**/*.hpp"
+      - "**/*.h"
+    targets:
+      - "//tools/format:format_test_C++_with_clang-format"
+  - patterns:
       - "**/BUILD"
       - "**/BUILD.bazel"
       - "**/*.bzl"
     targets:
       - "//tools/format:format_test_Starlark_with_buildifier"
+  - patterns:
+      - "**/*.proto"
+    targets:
+      - "//tools/format:format_test_Protocol_Buffer_with_buf"
+  - patterns:
+      - "**/*.rs"
+    targets:
+      - "//tools/format:format_test_Rust_with_rustfmt"
+  - patterns:
+      - "**/*.yaml"
+      - "**/*.yml"
+    targets:
+      - "//tools/format:format_test_YAML_with_yamlfmt"
 ```
 
 ### Pattern Syntax
@@ -177,8 +195,7 @@ The config file uses glob patterns to match files:
 
 1. When staged files are detected, each file is checked against the patterns in the config
 2. If any pattern matches, the corresponding targets are added to the output
-3. Config targets are added **after** filtering, so they bypass the format test filter
-4. Targets are deduplicated, so the same target won't appear twice
+3. Targets are deduplicated, so the same target won't appear twice
 
 ### Use Cases
 
