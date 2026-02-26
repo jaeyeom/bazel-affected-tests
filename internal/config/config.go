@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,8 +16,9 @@ const ConfigFileName = ".bazel-affected-tests.yaml"
 
 // Config represents the configuration file structure.
 type Config struct {
-	Version int    `yaml:"version"`
-	Rules   []Rule `yaml:"rules"`
+	Version int      `yaml:"version"`
+	Exclude []string `yaml:"exclude"`
+	Rules   []Rule   `yaml:"rules"`
 }
 
 // Rule maps glob patterns to Bazel targets.
@@ -43,6 +45,31 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// ShouldExclude reports whether the given target matches any exclude pattern.
+// Patterns use path.Match syntax (e.g., "//tools/format:*").
+func (c *Config) ShouldExclude(target string) bool {
+	for _, pattern := range c.Exclude {
+		if matched, _ := path.Match(pattern, target); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterExcluded returns tests with excluded targets removed.
+func (c *Config) FilterExcluded(tests []string) []string {
+	if len(c.Exclude) == 0 {
+		return tests
+	}
+	var filtered []string
+	for _, test := range tests {
+		if !c.ShouldExclude(test) {
+			filtered = append(filtered, test)
+		}
+	}
+	return filtered
 }
 
 // MatchTargets returns all targets whose patterns match any of the given files.

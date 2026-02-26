@@ -60,6 +60,7 @@ func main() {
 
 	var configTargets []string
 	if repoCfg != nil {
+		allTests = repoCfg.FilterExcluded(allTests)
 		configTargets = repoCfg.MatchTargets(stagedFiles)
 		slog.Debug("Config targets matched", "count", len(configTargets))
 	}

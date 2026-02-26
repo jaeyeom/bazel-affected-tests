@@ -209,6 +209,62 @@ func TestLoadConfig_InvalidPath(t *testing.T) {
 	}
 }
 
+func TestConfig_ShouldExclude(t *testing.T) {
+	config := &Config{
+		Version: 1,
+		Exclude: []string{"//tools/format:*"},
+	}
+
+	tests := []struct {
+		target string
+		want   bool
+	}{
+		{"//tools/format:format_test_Go_with_gofmt", true},
+		{"//tools/format:format_test_Python_with_ruff", true},
+		{"//pkg/foo:foo_test", false},
+		{"//tools/lint:lint_test", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.target, func(t *testing.T) {
+			if got := config.ShouldExclude(tt.target); got != tt.want {
+				t.Errorf("ShouldExclude(%q) = %v, want %v", tt.target, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfig_FilterExcluded(t *testing.T) {
+	config := &Config{
+		Version: 1,
+		Exclude: []string{"//tools/format:*"},
+	}
+
+	input := []string{
+		"//pkg/foo:foo_test",
+		"//tools/format:format_test_Go_with_gofmt",
+		"//tools/format:format_test_Python_with_ruff",
+		"//pkg/bar:bar_test",
+	}
+	got := config.FilterExcluded(input)
+	want := []string{"//pkg/foo:foo_test", "//pkg/bar:bar_test"}
+
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FilterExcluded() = %v, want %v", got, want)
+	}
+}
+
+func TestConfig_FilterExcluded_NoExcludes(t *testing.T) {
+	config := &Config{Version: 1}
+	input := []string{"//pkg/foo:test", "//tools/format:test"}
+	got := config.FilterExcluded(input)
+	if !reflect.DeepEqual(got, input) {
+		t.Errorf("FilterExcluded() = %v, want %v (unchanged)", got, input)
+	}
+}
+
 func TestConfig_MatchTargets_Deduplication(t *testing.T) {
 	config := &Config{
 		Version: 1,

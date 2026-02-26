@@ -145,6 +145,11 @@ You can create a `.bazel-affected-tests.yaml` file in the repository root to spe
 ```yaml
 version: 1
 
+# Exclude targets discovered via bazel query (uses path.Match syntax)
+exclude:
+  - "//tools/format:*"
+
+# Then selectively add back format tests based on file types
 rules:
   - patterns:
       - "**/*.go"
@@ -193,9 +198,12 @@ The config file uses glob patterns to match files:
 
 ### How It Works
 
-1. When staged files are detected, each file is checked against the patterns in the config
-2. If any pattern matches, the corresponding targets are added to the output
-3. Targets are deduplicated, so the same target won't appear twice
+1. Targets matching `exclude` patterns are removed from query results
+2. Each staged file is checked against the `rules` patterns
+3. If any pattern matches, the corresponding targets are added to the output
+4. Targets are deduplicated, so the same target won't appear twice
+
+The `exclude` field uses `path.Match` syntax on Bazel target labels (e.g., `//tools/format:*` matches all targets in the `//tools/format` package). This is useful for filtering out targets that get discovered via `rdeps` queries but should only be included when explicitly matched by a rule.
 
 ### Use Cases
 
