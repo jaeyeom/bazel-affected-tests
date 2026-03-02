@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -29,7 +30,7 @@ func TestNewCache(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := NewCache(tt.dir, false)
+			c := NewCache(tt.dir)
 			if c.dir != tt.wantPath {
 				t.Errorf("NewCache() dir = %v, want %v", c.dir, tt.wantPath)
 			}
@@ -38,30 +39,11 @@ func TestNewCache(t *testing.T) {
 }
 
 func TestCache_GetCacheKey(t *testing.T) {
-	// Create a temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "cache-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Save current dir and change to temp dir
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chdir(origDir); err != nil {
-			t.Fatal(err)
-		}
-	}()
+	tmpDir := t.TempDir()
 
 	// Test with no BUILD files
-	c := NewCache("", false)
-	key1, err := c.GetCacheKey()
+	c := NewCache("")
+	key1, err := c.GetCacheKey(tmpDir)
 	if err != nil {
 		t.Fatalf("GetCacheKey() error = %v", err)
 	}
@@ -70,12 +52,12 @@ func TestCache_GetCacheKey(t *testing.T) {
 	}
 
 	// Create a BUILD file
-	if err := os.WriteFile("BUILD", []byte("# test build file"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "BUILD"), []byte("# test build file"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Key should change after adding BUILD file
-	key2, err := c.GetCacheKey()
+	key2, err := c.GetCacheKey(tmpDir)
 	if err != nil {
 		t.Fatalf("GetCacheKey() error = %v", err)
 	}
@@ -84,12 +66,12 @@ func TestCache_GetCacheKey(t *testing.T) {
 	}
 
 	// Modify the BUILD file
-	if err := os.WriteFile("BUILD", []byte("# modified build file"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "BUILD"), []byte("# modified build file"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Key should change after modifying BUILD file
-	key3, err := c.GetCacheKey()
+	key3, err := c.GetCacheKey(tmpDir)
 	if err != nil {
 		t.Fatalf("GetCacheKey() error = %v", err)
 	}
@@ -98,15 +80,15 @@ func TestCache_GetCacheKey(t *testing.T) {
 	}
 
 	// Create nested BUILD files
-	if err := os.MkdirAll("src/lib", 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(tmpDir, "src", "lib"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile("src/BUILD.bazel", []byte("# src build"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "src", "BUILD.bazel"), []byte("# src build"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Key should change after adding more BUILD files
-	key4, err := c.GetCacheKey()
+	key4, err := c.GetCacheKey(tmpDir)
 	if err != nil {
 		t.Fatalf("GetCacheKey() error = %v", err)
 	}
@@ -115,12 +97,12 @@ func TestCache_GetCacheKey(t *testing.T) {
 	}
 
 	// Create a .bzl file
-	if err := os.WriteFile("defs.bzl", []byte("# macro definitions"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "defs.bzl"), []byte("# macro definitions"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Key should change after adding .bzl file
-	key5, err := c.GetCacheKey()
+	key5, err := c.GetCacheKey(tmpDir)
 	if err != nil {
 		t.Fatalf("GetCacheKey() error = %v", err)
 	}
@@ -129,12 +111,12 @@ func TestCache_GetCacheKey(t *testing.T) {
 	}
 
 	// Modify the .bzl file
-	if err := os.WriteFile("defs.bzl", []byte("# modified macros"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "defs.bzl"), []byte("# modified macros"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Key should change after modifying .bzl file
-	key6, err := c.GetCacheKey()
+	key6, err := c.GetCacheKey(tmpDir)
 	if err != nil {
 		t.Fatalf("GetCacheKey() error = %v", err)
 	}
@@ -143,12 +125,12 @@ func TestCache_GetCacheKey(t *testing.T) {
 	}
 
 	// Create WORKSPACE file (should NOT affect cache key)
-	if err := os.WriteFile("WORKSPACE", []byte("# workspace"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "WORKSPACE"), []byte("# workspace"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Key should NOT change after adding WORKSPACE file
-	key7, err := c.GetCacheKey()
+	key7, err := c.GetCacheKey(tmpDir)
 	if err != nil {
 		t.Fatalf("GetCacheKey() error = %v", err)
 	}
@@ -157,12 +139,12 @@ func TestCache_GetCacheKey(t *testing.T) {
 	}
 
 	// Create MODULE.bazel file (should NOT affect cache key)
-	if err := os.WriteFile("MODULE.bazel", []byte("# module"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "MODULE.bazel"), []byte("# module"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	// Key should NOT change after adding MODULE file
-	key8, err := c.GetCacheKey()
+	key8, err := c.GetCacheKey(tmpDir)
 	if err != nil {
 		t.Fatalf("GetCacheKey() error = %v", err)
 	}
@@ -171,14 +153,14 @@ func TestCache_GetCacheKey(t *testing.T) {
 	}
 
 	// The following subtests continue with the cumulative file state above.
-	// They share the CWD (tmpDir) and cache instance, so they run sequentially
+	// They share the tmpDir and cache instance, so they run sequentially
 	// via t.Run (no t.Parallel) to avoid races.
 
 	t.Run("WORKSPACE.bazel does not affect key", func(t *testing.T) {
-		if err := os.WriteFile("WORKSPACE.bazel", []byte("# workspace bazel"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "WORKSPACE.bazel"), []byte("# workspace bazel"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		key9, err := c.GetCacheKey()
+		key9, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
@@ -188,10 +170,10 @@ func TestCache_GetCacheKey(t *testing.T) {
 	})
 
 	t.Run("MODULE plain does not affect key", func(t *testing.T) {
-		if err := os.WriteFile("MODULE", []byte("# module plain"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "MODULE"), []byte("# module plain"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		key, err := c.GetCacheKey()
+		key, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
@@ -201,10 +183,10 @@ func TestCache_GetCacheKey(t *testing.T) {
 	})
 
 	t.Run("unrelated files do not affect key", func(t *testing.T) {
-		if err := os.WriteFile("README.md", []byte("notes"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("notes"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		key, err := c.GetCacheKey()
+		key, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
@@ -214,20 +196,20 @@ func TestCache_GetCacheKey(t *testing.T) {
 	})
 
 	t.Run("rename BUILD to BUILD.bazel changes key", func(t *testing.T) {
-		if err := os.MkdirAll("rename_case", 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(tmpDir, "rename_case"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile("rename_case/BUILD", []byte("# same content"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "rename_case", "BUILD"), []byte("# same content"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		before, err := c.GetCacheKey()
+		before, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
-		if err := os.Rename("rename_case/BUILD", "rename_case/BUILD.bazel"); err != nil {
+		if err := os.Rename(filepath.Join(tmpDir, "rename_case", "BUILD"), filepath.Join(tmpDir, "rename_case", "BUILD.bazel")); err != nil {
 			t.Fatal(err)
 		}
-		after, err := c.GetCacheKey()
+		after, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
@@ -237,14 +219,14 @@ func TestCache_GetCacheKey(t *testing.T) {
 	})
 
 	t.Run("unstaged BUILD edit changes key", func(t *testing.T) {
-		before, err := c.GetCacheKey()
+		before, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
-		if err := os.WriteFile("src/BUILD.bazel", []byte("# src build changed unstaged"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "BUILD.bazel"), []byte("# src build changed unstaged"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		after, err := c.GetCacheKey()
+		after, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
@@ -254,17 +236,17 @@ func TestCache_GetCacheKey(t *testing.T) {
 	})
 
 	t.Run("nested .bzl changes affect key", func(t *testing.T) {
-		if err := os.WriteFile("src/lib/rules.bzl", []byte("# nested bzl"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "lib", "rules.bzl"), []byte("# nested bzl"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		key1, err := c.GetCacheKey()
+		key1, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
-		if err := os.WriteFile("src/lib/rules.bzl", []byte("# nested bzl modified"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "lib", "rules.bzl"), []byte("# nested bzl modified"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		key2, err := c.GetCacheKey()
+		key2, err := c.GetCacheKey(tmpDir)
 		if err != nil {
 			t.Fatalf("GetCacheKey() error = %v", err)
 		}
@@ -275,14 +257,9 @@ func TestCache_GetCacheKey(t *testing.T) {
 }
 
 func TestCache_SetAndGet(t *testing.T) {
-	// Create a temporary cache directory
-	tmpDir, err := os.MkdirTemp("", "cache-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
-	c := NewCache(tmpDir, false)
+	c := NewCache(tmpDir)
 	cacheKey := "test-cache-key"
 
 	tests := []struct {
@@ -338,14 +315,9 @@ func TestCache_SetAndGet(t *testing.T) {
 }
 
 func TestCache_Clear(t *testing.T) {
-	// Create a temporary cache directory
-	tmpDir, err := os.MkdirTemp("", "cache-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
-	c := NewCache(tmpDir, false)
+	c := NewCache(tmpDir)
 	cacheKey := "test-cache-key"
 
 	// Set some cache data
@@ -375,7 +347,7 @@ func TestCache_Clear(t *testing.T) {
 }
 
 func TestCache_getCacheFile(t *testing.T) {
-	c := NewCache("/tmp/cache", false)
+	c := NewCache("/tmp/cache")
 
 	tests := []struct {
 		name     string
@@ -420,14 +392,9 @@ func TestCache_getCacheFile(t *testing.T) {
 }
 
 func TestCache_InvalidJSON(t *testing.T) {
-	// Create a temporary cache directory
-	tmpDir, err := os.MkdirTemp("", "cache-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
-	c := NewCache(tmpDir, false)
+	c := NewCache(tmpDir)
 	cacheKey := "test-cache-key"
 
 	// Create cache directory
@@ -451,18 +418,13 @@ func TestCache_InvalidJSON(t *testing.T) {
 
 func TestCache_PermissionError(t *testing.T) {
 	// Skip on Windows where permission model is different
-	if os.Getenv("GOOS") == "windows" {
+	if runtime.GOOS == "windows" {
 		t.Skip("Skipping permission test on Windows")
 	}
 
-	// Create a temporary cache directory
-	tmpDir, err := os.MkdirTemp("", "cache-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
-	c := NewCache(tmpDir, false)
+	c := NewCache(tmpDir)
 	cacheKey := "test-cache-key"
 
 	// Create read-only cache directory
@@ -475,26 +437,20 @@ func TestCache_PermissionError(t *testing.T) {
 	}
 
 	// Set should fail with permission error
-	err = c.Set(cacheKey, "//test", []string{"//test:test1"})
+	err := c.Set(cacheKey, "//test", []string{"//test:test1"})
 	if err == nil {
 		t.Error("Set() should fail with permission error")
 	}
 }
 
 func TestCache_DebugOutput(t *testing.T) {
-	// This test verifies debug output is called but doesn't check the actual output
-	// since it goes to stdout. In a real implementation, you might want to capture stdout.
+	// This test verifies that operations work correctly.
+	tmpDir := t.TempDir()
 
-	tmpDir, err := os.MkdirTemp("", "cache-test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	c := NewCache(tmpDir, true) // Enable debug
+	c := NewCache(tmpDir)
 	cacheKey := "test-cache-key"
 
-	// These operations should produce debug output
+	// These operations should work without errors
 	_ = c.Set(cacheKey, "//test", []string{"//test:test1"})
 	c.Get(cacheKey, "//test")
 	c.Get(cacheKey, "//nonexistent")

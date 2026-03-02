@@ -8,27 +8,22 @@ import (
 
 // FindBazelPackage finds the nearest Bazel package for a given file.
 // A Bazel package is a directory containing a BUILD or BUILD.bazel file.
-func FindBazelPackage(filePath string) (string, bool) {
+// filePath is a relative path (e.g., "src/lib/file.go") and repoRoot is the
+// absolute path to the repository root.
+func FindBazelPackage(repoRoot, filePath string) (string, bool) {
 	dir := filepath.Dir(filePath)
 
-	// Walk up the directory tree to find the nearest BUILD file
 	for dir != "." && dir != "/" && dir != "" {
-		if hasBuildFile(dir) {
-			// Convert to Bazel package label format
-			if dir == "." {
-				return "//", true
-			}
+		if hasBuildFile(filepath.Join(repoRoot, dir)) {
 			return "//" + strings.ReplaceAll(dir, string(filepath.Separator), "/"), true
 		}
 		dir = filepath.Dir(dir)
 	}
 
-	// Check if root directory has a BUILD file
-	if hasBuildFile(".") {
+	if hasBuildFile(repoRoot) {
 		return "//", true
 	}
 
-	// No BUILD file found - this file is not part of any Bazel package
 	return "", false
 }
 

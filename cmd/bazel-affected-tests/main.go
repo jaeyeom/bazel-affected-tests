@@ -22,10 +22,19 @@ func main() {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
-	c := cache.NewCache(cfg.cacheDir, cfg.debug)
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting working directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	c := cache.NewCache(cfg.cacheDir)
 
 	if cfg.clearCache {
-		handleCacheClear(c, cfg.debug)
+		if err := handleCacheClear(c); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -41,19 +50,19 @@ func main() {
 
 	slog.Debug("Staged files found", "count", len(stagedFiles))
 
-	packages := findPackages(stagedFiles)
+	packages := findPackages(repoRoot, stagedFiles)
 	if len(packages) == 0 {
 		slog.Debug("No Bazel packages found for staged files")
 		os.Exit(0)
 	}
 
-	cacheKey := getCacheKey(c, cfg.noCache)
+	cacheKey := getCacheKey(c, cfg.noCache, repoRoot)
 
-	querier := query.NewBazelQuerier(cfg.debug)
+	querier := query.NewBazelQuerier()
 	allTests := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
 
 	// Load config and add pattern-matched targets
-	repoCfg, err := config.LoadConfig()
+	repoCfg, err := config.LoadConfig(repoRoot)
 	if err != nil {
 		slog.Warn("Failed to load config", "error", err)
 	}
@@ -92,15 +101,12 @@ func parseFlags() cliConfig {
 	return cfg
 }
 
-func handleCacheClear(c *cache.Cache, debug bool) {
+func handleCacheClear(c *cache.Cache) error {
 	if err := c.Clear(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error clearing cache: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("clearing cache: %w", err)
 	}
-	if debug {
-		fmt.Println("Cache cleared successfully")
-	}
-	os.Exit(0)
+	slog.Debug("Cache cleared successfully")
+	return nil
 }
 
 func getStagedFiles() ([]string, error) {
@@ -113,12 +119,12 @@ func getStagedFiles() ([]string, error) {
 	return files, nil
 }
 
-func getCacheKey(c *cache.Cache, noCache bool) string {
+func getCacheKey(c *cache.Cache, noCache bool, repoRoot string) string {
 	if noCache {
 		return ""
 	}
 
-	cacheKey, err := c.GetCacheKey()
+	cacheKey, err := c.GetCacheKey(repoRoot)
 	if err != nil {
 		slog.Debug("Failed to compute cache key", "error", err)
 		return ""
@@ -128,11 +134,11 @@ func getCacheKey(c *cache.Cache, noCache bool) string {
 	return cacheKey
 }
 
-func findPackages(stagedFiles []string) []string {
+func findPackages(repoRoot string, stagedFiles []string) []string {
 	packageMap := make(map[string]bool)
 	for _, file := range stagedFiles {
 		slog.Debug("Processing file", "file", file)
-		if pkg, found := query.FindBazelPackage(file); found {
+		if pkg, found := query.FindBazelPackage(repoRoot, file); found {
 			slog.Debug("Found package", "package", pkg)
 			packageMap[pkg] = true
 		} else {

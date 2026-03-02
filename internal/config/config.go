@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -16,22 +17,28 @@ const ConfigFileName = ".bazel-affected-tests.yaml"
 
 // Config represents the configuration file structure.
 type Config struct {
-	Version int      `yaml:"version"`
+	// Version is the configuration file format version. Currently only 1 is supported.
+	Version int `yaml:"version"`
+	// Exclude is a list of path.Match patterns for targets to exclude from query results.
 	Exclude []string `yaml:"exclude"`
-	Rules   []Rule   `yaml:"rules"`
+	// Rules maps file glob patterns to Bazel targets to include when matched.
+	Rules []Rule `yaml:"rules"`
 }
 
-// Rule maps glob patterns to Bazel targets.
+// Rule maps glob patterns to Bazel targets. When any staged file matches one of
+// the Patterns, all corresponding Targets are included in the output.
 type Rule struct {
+	// Patterns is a list of glob patterns to match against staged file paths.
 	Patterns []string `yaml:"patterns"`
-	Targets  []string `yaml:"targets"`
+	// Targets is a list of Bazel target labels to include when a pattern matches.
+	Targets []string `yaml:"targets"`
 }
 
-// LoadConfig loads the configuration from .bazel-affected-tests.yaml in the current directory.
+// LoadConfig loads the configuration from .bazel-affected-tests.yaml in the given directory.
 // Returns nil, nil if the file does not exist.
 // Returns nil, error if the file exists but cannot be parsed.
-func LoadConfig() (*Config, error) {
-	data, err := os.ReadFile(ConfigFileName)
+func LoadConfig(configDir string) (*Config, error) {
+	data, err := os.ReadFile(filepath.Join(configDir, ConfigFileName))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil

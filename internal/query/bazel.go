@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
 	executor "github.com/jaeyeom/go-cmdexec"
 )
+
+// validPkgPattern validates Bazel package labels.
+var validPkgPattern = regexp.MustCompile(`^//[a-zA-Z0-9_./-]*$`)
 
 // BazelQuerier executes Bazel queries.
 type BazelQuerier struct {
@@ -19,10 +23,7 @@ type BazelQuerier struct {
 }
 
 // NewBazelQuerier creates a new BazelQuerier.
-func NewBazelQuerier(debug bool) *BazelQuerier {
-	if debug {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-	}
+func NewBazelQuerier() *BazelQuerier {
 	failOnError := os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "true" || os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "1"
 	return &BazelQuerier{
 		executor:    executor.NewBasicExecutor(),
@@ -32,10 +33,7 @@ func NewBazelQuerier(debug bool) *BazelQuerier {
 
 // NewBazelQuerierWithExecutor creates a new BazelQuerier with a custom executor.
 // This is primarily useful for testing.
-func NewBazelQuerierWithExecutor(exec executor.Executor, debug bool) *BazelQuerier {
-	if debug {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-	}
+func NewBazelQuerierWithExecutor(exec executor.Executor) *BazelQuerier {
 	failOnError := os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "true" || os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "1"
 	return &BazelQuerier{
 		executor:    exec,
@@ -60,6 +58,11 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 
 	// Process each unique package
 	for pkg := range uniquePackages {
+		if !validPkgPattern.MatchString(pkg) {
+			slog.Warn("Skipping invalid package label", "package", pkg)
+			continue
+		}
+
 		slog.Debug("Processing package", "package", pkg)
 
 		// Get tests in the same package

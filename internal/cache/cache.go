@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -19,30 +20,32 @@ type Cache struct {
 }
 
 // NewCache creates a new cache instance.
-func NewCache(dir string, debug bool) *Cache {
-	if debug {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-	}
+func NewCache(dir string) *Cache {
 	if dir == "" {
-		homeDir, _ := os.UserHomeDir()
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			slog.Warn("Failed to determine home directory, falling back to temp dir", "error", err)
+			homeDir = os.TempDir()
+		}
 		dir = filepath.Join(homeDir, ".cache", "bazel-affected-tests")
 	}
 	return &Cache{dir: dir}
 }
 
 // GetCacheKey computes a cache key based on BUILD and .bzl files.
-func (c *Cache) GetCacheKey() (string, error) {
+func (c *Cache) GetCacheKey(repoRoot string) (string, error) {
 	// Find all BUILD and .bzl files
 	// WORKSPACE/MODULE are intentionally excluded as they don't affect internal dependency graph
 	var buildFiles []string
-	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			slog.Warn("Skipping inaccessible path", "path", path, "error", err)
 			return nil // Skip files we can't access
 		}
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
-		name := info.Name()
+		name := d.Name()
 		if name == "BUILD" || name == "BUILD.bazel" || strings.HasSuffix(name, ".bzl") {
 			buildFiles = append(buildFiles, path)
 		}
@@ -64,10 +67,11 @@ func (c *Cache) GetCacheKey() (string, error) {
 		// Include file content in hash
 		f, err := os.Open(file)
 		if err != nil {
+			slog.Warn("Skipping unreadable file", "file", file, "error", err)
 			continue // Skip files we can't read
 		}
 		_, _ = io.Copy(h, f)
-		f.Close()
+		_ = f.Close()
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
@@ -95,7 +99,7 @@ func (c *Cache) Get(cacheKey, pkg string) ([]string, bool) {
 func (c *Cache) Set(cacheKey, pkg string, tests []string) error {
 	// Create cache directory if it doesn't exist
 	cacheDir := filepath.Join(c.dir, cacheKey)
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
@@ -128,5 +132,10 @@ func (c *Cache) getCacheFile(cacheKey, pkg string) string {
 	if safePkg == "" {
 		safePkg = "root"
 	}
-	return filepath.Join(c.dir, cacheKey, safePkg+".json")
+	result := filepath.Join(c.dir, cacheKey, safePkg+".json")
+	// Path traversal guard
+	if !strings.HasPrefix(filepath.Clean(result)+string(filepath.Separator), filepath.Clean(c.dir)+string(filepath.Separator)) {
+		return filepath.Join(c.dir, cacheKey, "invalid.json")
+	}
+	return result
 }

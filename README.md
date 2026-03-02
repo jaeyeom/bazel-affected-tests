@@ -1,5 +1,10 @@
 # Bazel Affected Tests
 
+[![CI](https://github.com/jaeyeom/bazel-affected-tests/actions/workflows/ci.yml/badge.svg)](https://github.com/jaeyeom/bazel-affected-tests/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jaeyeom/bazel-affected-tests)](https://goreportcard.com/report/github.com/jaeyeom/bazel-affected-tests)
+[![Go Reference](https://pkg.go.dev/badge/github.com/jaeyeom/bazel-affected-tests.svg)](https://pkg.go.dev/github.com/jaeyeom/bazel-affected-tests)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 A fast Go implementation of the Bazel affected tests detection tool. This tool
 identifies which Bazel test targets might be affected by changes in your git
 staging area.

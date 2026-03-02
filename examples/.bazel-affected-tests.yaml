@@ -1,0 +1,35 @@
+# Example configuration for bazel-affected-tests.
+# Place this file as .bazel-affected-tests.yaml in your repository root.
+
+version: 1
+
+# Exclude targets discovered via bazel query.
+# Uses path.Match syntax on Bazel target labels.
+# Useful for filtering out targets that get discovered via rdeps queries
+# but should only be included when explicitly matched by a rule below.
+exclude:
+  - "//tools/format:*"
+
+# Rules map file glob patterns to Bazel targets.
+# When any staged file matches a pattern, the corresponding targets are added
+# to the output. Targets are deduplicated automatically.
+rules:
+  # Run Go format checks when any .go file changes
+  - patterns:
+      - "**/*.go"
+    targets:
+      - "//tools/format:format_test_Go_with_gofmt"
+
+  # Run Python format checks when any .py file changes
+  - patterns:
+      - "**/*.py"
+    targets:
+      - "//tools/format:format_test_Python_with_ruff"
+
+  # Run buildifier checks when BUILD or .bzl files change
+  - patterns:
+      - "**/BUILD"
+      - "**/BUILD.bazel"
+      - "**/*.bzl"
+    targets:
+      - "//tools/format:format_test_Starlark_with_buildifier"

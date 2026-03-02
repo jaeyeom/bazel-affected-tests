@@ -15,3 +15,7 @@ coverage.html
 # OS
 .DS_Store
 Thumbs.db
+
+# Tooling state
+.claude/
+.omc/

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 )
 
 func TestNewBazelQuerier(t *testing.T) {
-	q := NewBazelQuerier(false)
+	q := NewBazelQuerier()
 	if q == nil {
 		t.Fatal("NewBazelQuerier returned nil")
 		return
@@ -25,7 +26,7 @@ func TestNewBazelQuerier(t *testing.T) {
 
 func TestNewBazelQuerierWithExecutor(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, true)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	if q == nil {
 		t.Fatal("NewBazelQuerierWithExecutor returned nil")
@@ -38,7 +39,7 @@ func TestNewBazelQuerierWithExecutor(t *testing.T) {
 
 func TestFindAffectedTests_EmptyPackages(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	tests, err := q.FindAffectedTests([]string{})
 	if err != nil {
@@ -58,7 +59,7 @@ func TestFindAffectedTests_EmptyPackages(t *testing.T) {
 
 func TestFindAffectedTests_SinglePackageWithTests(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Mock same-package tests query
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -101,7 +102,7 @@ func TestFindAffectedTests_SinglePackageWithTests(t *testing.T) {
 
 func TestFindAffectedTests_MultiplePackages(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Package 1 queries
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -136,7 +137,7 @@ func TestFindAffectedTests_MultiplePackages(t *testing.T) {
 
 func TestFindAffectedTests_DeduplicatePackages(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Should only execute once for the duplicate package
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -165,7 +166,7 @@ func TestFindAffectedTests_DeduplicatePackages(t *testing.T) {
 
 func TestFindAffectedTests_EmptyQueryResults(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// All queries return empty results
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -187,7 +188,7 @@ func TestFindAffectedTests_EmptyQueryResults(t *testing.T) {
 
 func TestFindAffectedTests_QueryErrorHandling(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// First query succeeds
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -212,7 +213,7 @@ func TestFindAffectedTests_QueryErrorHandling(t *testing.T) {
 
 func TestFindAffectedTests_BazelEmptyResultExitCode(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Bazel returns non-zero exit code but no stderr (empty result)
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -243,7 +244,7 @@ func TestFindAffectedTests_BazelEmptyResultExitCode(t *testing.T) {
 
 func TestFindAffectedTests_DeduplicateTestTargets(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same test appears in multiple queries
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -278,7 +279,7 @@ func TestFindAffectedTests_DeduplicateTestTargets(t *testing.T) {
 
 func TestQuery_ExecutorError(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Mock executor error (not exit code)
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
@@ -301,7 +302,7 @@ func TestQuery_ExecutorError(t *testing.T) {
 
 func TestQuery_NonZeroExitWithStderr(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "invalid query").
 		WillReturn(&executor.ExecutionResult{
@@ -324,14 +325,14 @@ func TestQuery_NonZeroExitWithStderr(t *testing.T) {
 		t.Errorf("Expected nil results on error, got %v", results)
 	}
 
-	if !contains(err.Error(), "exit code 1") {
+	if !strings.Contains(err.Error(), "exit code 1") {
 		t.Errorf("Expected error to mention exit code: %v", err)
 	}
 }
 
 func TestQuery_MultilineOutput(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	output := "//pkg/foo:test1\n//pkg/foo:test2\n//pkg/bar:test3\n"
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
@@ -365,7 +366,7 @@ func TestQuery_MultilineOutput(t *testing.T) {
 
 func TestQuery_EmptyLinesFiltered(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	output := "//pkg/foo:test1\n\n\n//pkg/foo:test2\n\n"
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
@@ -384,7 +385,7 @@ func TestQuery_EmptyLinesFiltered(t *testing.T) {
 
 func TestQuery_Timeout(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Verify timeout is set correctly
 	var capturedConfig executor.ToolConfig
@@ -465,7 +466,7 @@ func TestNewBazelQuerier_FailOnErrorEnvVar(t *testing.T) {
 				os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
 			}
 
-			q := NewBazelQuerier(false)
+			q := NewBazelQuerier()
 			if q.failOnError != tt.expectFail {
 				t.Errorf("Expected failOnError=%v, got %v", tt.expectFail, q.failOnError)
 			}
@@ -487,7 +488,7 @@ func TestNewBazelQuerierWithExecutor_FailOnErrorEnvVar(t *testing.T) {
 	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
 
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	if !q.failOnError {
 		t.Error("Expected failOnError=true when env var is set to 'true'")
@@ -508,7 +509,7 @@ func TestFindAffectedTests_FailOnError_True(t *testing.T) {
 	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
 
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package query fails
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -522,7 +523,7 @@ func TestFindAffectedTests_FailOnError_True(t *testing.T) {
 		t.Fatal("Expected error when failOnError=true and query fails")
 	}
 
-	if !contains(err.Error(), "same package tests") {
+	if !strings.Contains(err.Error(), "same package tests") {
 		t.Errorf("Expected error message to mention 'same package tests', got: %v", err)
 	}
 
@@ -545,7 +546,7 @@ func TestFindAffectedTests_FailOnError_ExternalTestDeps(t *testing.T) {
 	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
 
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package query succeeds
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -564,7 +565,7 @@ func TestFindAffectedTests_FailOnError_ExternalTestDeps(t *testing.T) {
 		t.Fatal("Expected error when failOnError=true and external test deps query fails")
 	}
 
-	if !contains(err.Error(), "external test deps") {
+	if !strings.Contains(err.Error(), "external test deps") {
 		t.Errorf("Expected error message to mention 'external test deps', got: %v", err)
 	}
 
@@ -587,7 +588,7 @@ func TestFindAffectedTests_FailOnError_False(t *testing.T) {
 	os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") // Default is false
 
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package query fails
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
@@ -613,7 +614,7 @@ func TestFindAffectedTests_FailOnError_False(t *testing.T) {
 
 func TestQuery_LockContention(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Bazel returns exit code 45 when another command is running
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
@@ -637,14 +638,14 @@ func TestQuery_LockContention(t *testing.T) {
 		t.Errorf("Expected nil results on lock contention, got %v", results)
 	}
 
-	if !contains(err.Error(), "another bazel command is running") {
+	if !strings.Contains(err.Error(), "another bazel command is running") {
 		t.Errorf("Expected error message about bazel command running, got: %v", err)
 	}
 }
 
 func TestQuery_LockContentionByStderr(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
-	q := NewBazelQuerierWithExecutor(mockExec, false)
+	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Also check detection by stderr message (in case exit code differs)
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
@@ -668,21 +669,7 @@ func TestQuery_LockContentionByStderr(t *testing.T) {
 		t.Errorf("Expected nil results on lock contention, got %v", results)
 	}
 
-	if !contains(err.Error(), "another bazel command is running") {
+	if !strings.Contains(err.Error(), "another bazel command is running") {
 		t.Errorf("Expected error message about bazel command running, got: %v", err)
 	}
-}
-
-// Helper function.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

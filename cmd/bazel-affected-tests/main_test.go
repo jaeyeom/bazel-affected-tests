@@ -18,7 +18,7 @@ func sorted(xs []string) []string {
 
 func TestGetPackageTests_UsesCacheWhenAvailable(t *testing.T) {
 	tmpDir := t.TempDir()
-	c := cache.NewCache(tmpDir, false)
+	c := cache.NewCache(tmpDir)
 	cacheKey := "k1"
 	pkg := "//pkg/foo"
 	cached := []string{"//pkg/foo:cached_test"}
@@ -27,7 +27,7 @@ func TestGetPackageTests_UsesCacheWhenAvailable(t *testing.T) {
 	}
 
 	mockExec := executor.NewMockExecutor()
-	q := query.NewBazelQuerierWithExecutor(mockExec, false)
+	q := query.NewBazelQuerierWithExecutor(mockExec)
 
 	got := getPackageTests(pkg, q, c, cacheKey, false)
 	if !reflect.DeepEqual(got, cached) {
@@ -42,13 +42,13 @@ func TestGetPackageTests_UsesCacheWhenAvailable(t *testing.T) {
 
 func TestGetPackageTests_CacheMissQueriesAndStores(t *testing.T) {
 	tmpDir := t.TempDir()
-	c := cache.NewCache(tmpDir, false)
+	c := cache.NewCache(tmpDir)
 	cacheKey := "k1"
 	pkg := "//pkg/foo"
 
 	// FindAffectedTests internally makes 2 bazel queries per package:
-	// 1. kind('.*_test rule', PKG:*)         — same-package tests
-	// 2. rdeps(//..., PKG:*) intersect ...   — reverse-dep tests
+	// 1. kind('.*_test rule', PKG:*)         -- same-package tests
+	// 2. rdeps(//..., PKG:*) intersect ...   -- reverse-dep tests
 	mockExec := executor.NewMockExecutor()
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:unit_test", 0).
@@ -58,7 +58,7 @@ func TestGetPackageTests_CacheMissQueriesAndStores(t *testing.T) {
 		WillSucceed("//dep:dep_test", 0).
 		Once().
 		Build()
-	q := query.NewBazelQuerierWithExecutor(mockExec, false)
+	q := query.NewBazelQuerierWithExecutor(mockExec)
 
 	got := sorted(getPackageTests(pkg, q, c, cacheKey, false))
 	want := sorted([]string{"//pkg/foo:unit_test", "//dep:dep_test"})
@@ -80,7 +80,7 @@ func TestGetPackageTests_CacheMissQueriesAndStores(t *testing.T) {
 
 func TestGetPackageTests_NoCacheFlagBypassesReadAndWrite(t *testing.T) {
 	tmpDir := t.TempDir()
-	c := cache.NewCache(tmpDir, false)
+	c := cache.NewCache(tmpDir)
 	cacheKey := "k1"
 	pkg := "//pkg/foo"
 	if err := c.Set(cacheKey, pkg, []string{"//pkg/foo:old_cached"}); err != nil {
@@ -96,7 +96,7 @@ func TestGetPackageTests_NoCacheFlagBypassesReadAndWrite(t *testing.T) {
 		WillSucceed("", 0).
 		Once().
 		Build()
-	q := query.NewBazelQuerierWithExecutor(mockExec, false)
+	q := query.NewBazelQuerierWithExecutor(mockExec)
 
 	got := getPackageTests(pkg, q, c, cacheKey, true)
 	want := []string{"//pkg/foo:new_test"}
@@ -118,7 +118,7 @@ func TestGetPackageTests_NoCacheFlagBypassesReadAndWrite(t *testing.T) {
 
 func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 	tmpDir := t.TempDir()
-	c := cache.NewCache(tmpDir, false)
+	c := cache.NewCache(tmpDir)
 	pkg := "//pkg/foo"
 
 	mockExec := executor.NewMockExecutor()
@@ -130,7 +130,7 @@ func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 		WillSucceed("", 0).
 		Once().
 		Build()
-	q := query.NewBazelQuerierWithExecutor(mockExec, false)
+	q := query.NewBazelQuerierWithExecutor(mockExec)
 
 	got := getPackageTests(pkg, q, c, "", false)
 	want := []string{"//pkg/foo:new_test"}
@@ -149,7 +149,7 @@ func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 
 func TestCollectAllTests_DeduplicatesAcrossPackages(t *testing.T) {
 	tmpDir := t.TempDir()
-	c := cache.NewCache(tmpDir, false)
+	c := cache.NewCache(tmpDir)
 	cacheKey := "k1"
 	if err := c.Set(cacheKey, "//pkg/foo", []string{"//pkg/foo:t1", "//shared:t"}); err != nil {
 		t.Fatalf("Set() error: %v", err)
@@ -159,7 +159,7 @@ func TestCollectAllTests_DeduplicatesAcrossPackages(t *testing.T) {
 	}
 
 	mockExec := executor.NewMockExecutor()
-	q := query.NewBazelQuerierWithExecutor(mockExec, false)
+	q := query.NewBazelQuerierWithExecutor(mockExec)
 
 	got := sorted(collectAllTests([]string{"//pkg/foo", "//pkg/bar"}, q, c, cacheKey, false))
 	want := sorted([]string{"//pkg/foo:t1", "//pkg/bar:t2", "//shared:t"})
