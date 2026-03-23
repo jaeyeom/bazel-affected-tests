@@ -46,11 +46,16 @@ func TestGetPackageTests_CacheMissQueriesAndStores(t *testing.T) {
 	cacheKey := "k1"
 	pkg := "//pkg/foo"
 
-	// FindAffectedTests internally makes 2 bazel queries per package:
+	// FindAffectedTests internally makes 3 bazel queries per package:
 	// 1. kind('.*_test rule', PKG:*)         -- same-package tests
-	// 2. rdeps(//..., PKG:*) intersect ...   -- reverse-dep tests
+	// 2. kind('.*_test rule', PKG/...)       -- sub-package tests
+	// 3. rdeps(//..., PKG:*) intersect ...   -- reverse-dep tests
 	mockExec := executor.NewMockExecutor()
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+		WillSucceed("//pkg/foo:unit_test", 0).
+		Once().
+		Build()
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:unit_test", 0).
 		Once().
 		Build()
@@ -92,6 +97,10 @@ func TestGetPackageTests_NoCacheFlagBypassesReadAndWrite(t *testing.T) {
 		WillSucceed("//pkg/foo:new_test", 0).
 		Once().
 		Build()
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+		WillSucceed("//pkg/foo:new_test", 0).
+		Once().
+		Build()
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Once().
@@ -123,6 +132,10 @@ func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 
 	mockExec := executor.NewMockExecutor()
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+		WillSucceed("//pkg/foo:new_test", 0).
+		Once().
+		Build()
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:new_test", 0).
 		Once().
 		Build()

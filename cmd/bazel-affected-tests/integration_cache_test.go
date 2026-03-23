@@ -108,6 +108,9 @@ case "$query" in
   "kind('.*_test rule', //pkg/foo:*)")
     printf '%%s\n' "//pkg/foo:foo_test"
     ;;
+  "kind('.*_test rule', //pkg/foo/...)")
+    printf '%%s\n' "//pkg/foo:foo_test"
+    ;;
   "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)")
     printf '%%s\n' "//dep:dep_test"
     ;;
@@ -131,9 +134,9 @@ esac
 		runCommand(t, repoDir, env, binPath, args...)
 	}
 
-	// Each full run queries: 2 for //pkg/foo (same-package + rdeps).
+	// Each full run queries: 3 for //pkg/foo (same-package + sub-package + rdeps).
 	// A cache hit for //pkg/foo runs 0 queries.
-	const fullRunQueries = 2
+	const fullRunQueries = 3
 	const cacheHitQueries = 0
 
 	// First run: full queries for //pkg/foo.

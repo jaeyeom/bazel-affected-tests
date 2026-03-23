@@ -79,6 +79,20 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 			}
 		}
 
+		// Get tests in sub-packages (e.g., golden tests in child directories)
+		subPackageTests, err := q.query(fmt.Sprintf("kind('.*_test rule', %s/...)", pkg))
+		if err != nil {
+			if q.failOnError {
+				return nil, fmt.Errorf("failed to query sub-package tests for %s: %w", pkg, err)
+			}
+			slog.Warn("Error querying sub-package tests, continuing...", "package", pkg, "error", err)
+		} else {
+			slog.Debug("Sub-package tests found", "count", len(subPackageTests))
+			for _, test := range subPackageTests {
+				testsSet[test] = true
+			}
+		}
+
 		// Get external test dependencies
 		externalTests, err := q.query(fmt.Sprintf("rdeps(//..., %s:*) intersect kind('.*_test rule', //...)", pkg))
 		if err != nil {
