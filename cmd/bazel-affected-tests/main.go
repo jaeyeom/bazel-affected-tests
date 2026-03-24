@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -38,19 +39,25 @@ func main() {
 		return
 	}
 
-	stagedFiles, err := getStagedFiles()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting staged files: %v\n", err)
-		os.Exit(1)
+	var changedFiles []string
+	if isStdinPiped() {
+		changedFiles = readLinesFromStdin()
+		slog.Debug("Read files from stdin", "count", len(changedFiles))
+	} else {
+		var err error
+		changedFiles, err = getStagedFiles()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting staged files: %v\n", err)
+			os.Exit(1)
+		}
+		slog.Debug("Staged files found", "count", len(changedFiles))
 	}
 
-	if len(stagedFiles) == 0 {
+	if len(changedFiles) == 0 {
 		os.Exit(0)
 	}
 
-	slog.Debug("Staged files found", "count", len(stagedFiles))
-
-	packages := findPackages(repoRoot, stagedFiles)
+	packages := findPackages(repoRoot, changedFiles)
 	if len(packages) == 0 {
 		slog.Debug("No Bazel packages found for staged files")
 		os.Exit(0)
@@ -70,7 +77,7 @@ func main() {
 	var configTargets []string
 	if repoCfg != nil {
 		allTests = repoCfg.FilterExcluded(allTests)
-		configTargets = repoCfg.MatchTargets(stagedFiles)
+		configTargets = repoCfg.MatchTargets(changedFiles)
 		slog.Debug("Config targets matched", "count", len(configTargets))
 	}
 
@@ -134,9 +141,9 @@ func getCacheKey(c *cache.Cache, noCache bool, repoRoot string) string {
 	return cacheKey
 }
 
-func findPackages(repoRoot string, stagedFiles []string) []string {
+func findPackages(repoRoot string, changedFiles []string) []string {
 	packageMap := make(map[string]bool)
-	for _, file := range stagedFiles {
+	for _, file := range changedFiles {
 		slog.Debug("Processing file", "file", file)
 		if pkg, found := query.FindBazelPackage(repoRoot, file); found {
 			slog.Debug("Found package", "package", pkg)
@@ -214,4 +221,26 @@ func outputResults(tests []string, configTargets []string) {
 	for _, target := range result {
 		fmt.Println(target)
 	}
+}
+
+// isStdinPiped returns true if stdin is being piped (not a terminal).
+func isStdinPiped() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice == 0
+}
+
+// readLinesFromStdin reads non-empty lines from stdin.
+func readLinesFromStdin() []string {
+	var lines []string
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
 }
