@@ -40,9 +40,14 @@ func main() {
 	}
 
 	var changedFiles []string
-	if isStdinPiped() {
-		changedFiles = readLinesFromStdin()
-		slog.Debug("Read files from stdin", "count", len(changedFiles))
+	if cfg.filesFrom != "" {
+		var err error
+		changedFiles, err = readFilesFrom(cfg.filesFrom)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading files from %q: %v\n", cfg.filesFrom, err)
+			os.Exit(1)
+		}
+		slog.Debug("Read files from input", "source", cfg.filesFrom, "count", len(changedFiles))
 	} else {
 		var err error
 		changedFiles, err = getStagedFiles()
@@ -90,6 +95,7 @@ type cliConfig struct {
 	cacheDir   string
 	clearCache bool
 	noCache    bool
+	filesFrom  string
 }
 
 func parseFlags() cliConfig {
@@ -98,6 +104,7 @@ func parseFlags() cliConfig {
 	flag.StringVar(&cfg.cacheDir, "cache-dir", "", "Cache directory (default: $HOME/.cache/bazel-affected-tests)")
 	flag.BoolVar(&cfg.clearCache, "clear-cache", false, "Clear the cache and exit")
 	flag.BoolVar(&cfg.noCache, "no-cache", false, "Disable caching")
+	flag.StringVar(&cfg.filesFrom, "files-from", "", "Read changed file list from a file (use - for stdin)")
 	flag.Parse()
 
 	// Set debug from environment if not set via flag
@@ -223,24 +230,31 @@ func outputResults(tests []string, configTargets []string) {
 	}
 }
 
-// isStdinPiped returns true if stdin is being piped (not a terminal).
-func isStdinPiped() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
+// readFilesFrom reads non-empty lines from the given path. If path is "-",
+// it reads from stdin.
+func readFilesFrom(path string) ([]string, error) {
+	var r *os.File
+	if path == "-" {
+		r = os.Stdin
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("opening file: %w", err)
+		}
+		defer f.Close()
+		r = f
 	}
-	return fi.Mode()&os.ModeCharDevice == 0
-}
 
-// readLinesFromStdin reads non-empty lines from stdin.
-func readLinesFromStdin() []string {
 	var lines []string
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line != "" {
 			lines = append(lines, line)
 		}
 	}
-	return lines
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading lines: %w", err)
+	}
+	return lines, nil
 }

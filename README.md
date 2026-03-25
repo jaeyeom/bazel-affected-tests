@@ -41,6 +41,7 @@ bazel-affected-tests | xargs bazel test
 - `--cache-dir`: Custom cache directory (default: `$HOME/.cache/bazel-affected-tests`)
 - `--clear-cache`: Clear the cache and exit
 - `--no-cache`: Disable caching for this run
+- `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
 
 ### Examples
 
@@ -56,6 +57,12 @@ bazel-affected-tests --no-cache
 
 # Use in a pre-commit hook to run affected tests
 bazel-affected-tests | xargs bazel test
+
+# Read changed files from stdin
+git diff --name-only main | bazel-affected-tests --files-from -
+
+# Read changed files from a file
+bazel-affected-tests --files-from changed_files.txt
 ```
 
 ### Integration with Pre-commit Hooks
@@ -73,7 +80,7 @@ Make sure to run `go install` first to ensure the binary is in your PATH.
 
 ## How It Works
 
-1. **File Detection**: Gets staged files from git (Added, Copied, Modified - not Deleted)
+1. **File Detection**: Gets changed files from `--files-from` if specified, otherwise from git staged files (Added, Copied, Modified - not Deleted)
 2. **Package Finding**: Finds the nearest Bazel package (directory with BUILD file) for each file
 3. **Test Discovery**: Uses `bazel query` to find:
    - Test targets within the same package
