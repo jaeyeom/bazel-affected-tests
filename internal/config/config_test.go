@@ -224,6 +224,102 @@ func TestConfig_FilterExcluded_NoExcludes(t *testing.T) {
 	}
 }
 
+func TestConfig_FilterIgnoredFiles(t *testing.T) {
+	config := &Config{
+		Version: 1,
+		IgnorePaths: []string{
+			".semgrep/**",
+			"docs/**",
+			"*.md",
+		},
+	}
+
+	tests := []struct {
+		name  string
+		files []string
+		want  []string
+	}{
+		{
+			name:  "filters semgrep files",
+			files: []string{".semgrep/py3-logging-format.yaml", "src/main.go"},
+			want:  []string{"src/main.go"},
+		},
+		{
+			name:  "filters docs files",
+			files: []string{"docs/guide.md", "docs/api/reference.html", "src/lib.go"},
+			want:  []string{"src/lib.go"},
+		},
+		{
+			name:  "filters root markdown files",
+			files: []string{"README.md", "CHANGELOG.md", "src/main.go"},
+			want:  []string{"src/main.go"},
+		},
+		{
+			name:  "all files filtered",
+			files: []string{".semgrep/rule.yaml", "docs/readme.md"},
+			want:  nil,
+		},
+		{
+			name:  "no files filtered",
+			files: []string{"src/main.go", "pkg/lib/lib.go"},
+			want:  []string{"src/main.go", "pkg/lib/lib.go"},
+		},
+		{
+			name:  "empty files list",
+			files: []string{},
+			want:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := config.FilterIgnoredFiles(tt.files)
+			// Normalize nil/empty for comparison
+			if len(got) == 0 && len(tt.want) == 0 {
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("FilterIgnoredFiles() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfig_FilterIgnoredFiles_NoIgnorePaths(t *testing.T) {
+	config := &Config{Version: 1}
+	input := []string{"src/main.go", ".semgrep/rule.yaml"}
+	got := config.FilterIgnoredFiles(input)
+	if !reflect.DeepEqual(got, input) {
+		t.Errorf("FilterIgnoredFiles() = %v, want %v (unchanged)", got, input)
+	}
+}
+
+func TestLoadConfig_WithIgnorePaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := `version: 1
+ignore_paths:
+  - ".semgrep/**"
+  - "docs/**"
+  - "*.md"
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+
+	want := &Config{
+		Version:     1,
+		IgnorePaths: []string{".semgrep/**", "docs/**", "*.md"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("LoadConfig() = %+v, want %+v", got, want)
+	}
+}
+
 func TestConfig_MatchTargets_Deduplication(t *testing.T) {
 	config := &Config{
 		Version: 1,

@@ -62,6 +62,20 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Load config early so ignore_paths can filter files before package resolution
+	repoCfg, err := config.LoadConfig(repoRoot)
+	if err != nil {
+		slog.Warn("Failed to load config", "error", err)
+	}
+
+	if repoCfg != nil {
+		changedFiles = repoCfg.FilterIgnoredFiles(changedFiles)
+		slog.Debug("Files after ignore_paths filtering", "count", len(changedFiles))
+		if len(changedFiles) == 0 {
+			os.Exit(0)
+		}
+	}
+
 	packages := findPackages(repoRoot, changedFiles)
 	if len(packages) == 0 {
 		slog.Debug("No Bazel packages found for staged files")
@@ -72,12 +86,6 @@ func main() {
 
 	querier := query.NewBazelQuerier()
 	allTests := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
-
-	// Load config and add pattern-matched targets
-	repoCfg, err := config.LoadConfig(repoRoot)
-	if err != nil {
-		slog.Warn("Failed to load config", "error", err)
-	}
 
 	var configTargets []string
 	if repoCfg != nil {

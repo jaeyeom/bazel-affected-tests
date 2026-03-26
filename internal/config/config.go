@@ -19,6 +19,10 @@ const ConfigFileName = ".bazel-affected-tests.yaml"
 type Config struct {
 	// Version is the configuration file format version. Currently only 1 is supported.
 	Version int `yaml:"version"`
+	// IgnorePaths is a list of glob patterns for file paths to skip before
+	// package resolution. Files matching these patterns are excluded from all
+	// processing — no package lookup and no test discovery.
+	IgnorePaths []string `yaml:"ignore_paths"`
 	// Exclude is a list of path.Match patterns for targets to exclude from query results.
 	Exclude []string `yaml:"exclude"`
 	// Rules maps file glob patterns to Bazel targets to include when matched.
@@ -52,6 +56,31 @@ func LoadConfig(configDir string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// FilterIgnoredFiles returns files that do not match any ignore_paths pattern.
+// Patterns use the same glob syntax as rule patterns (e.g., ".semgrep/**", "docs/**", "*.md").
+func (c *Config) FilterIgnoredFiles(files []string) []string {
+	if len(c.IgnorePaths) == 0 {
+		return files
+	}
+	var filtered []string
+	for _, file := range files {
+		if !c.shouldIgnoreFile(file) {
+			filtered = append(filtered, file)
+		}
+	}
+	return filtered
+}
+
+// shouldIgnoreFile reports whether the given file matches any ignore_paths pattern.
+func (c *Config) shouldIgnoreFile(file string) bool {
+	for _, pattern := range c.IgnorePaths {
+		if MatchPattern(pattern, file) {
+			return true
+		}
+	}
+	return false
 }
 
 // ShouldExclude reports whether the given target matches any exclude pattern.

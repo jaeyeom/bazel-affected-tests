@@ -3,6 +3,16 @@
 
 version: 1
 
+# Ignore file paths before package resolution.
+# Files matching these patterns are skipped entirely — no package lookup,
+# no test discovery. Uses the same glob syntax as rule patterns.
+# Useful for non-Bazel files that would otherwise map to the root package
+# and trigger all tests in the repo.
+ignore_paths:
+  - ".semgrep/**"
+  - "docs/**"
+  - "*.md"
+
 # Exclude targets discovered via bazel query.
 # Uses path.Match syntax on Bazel target labels.
 # Useful for filtering out targets that get discovered via rdeps queries
