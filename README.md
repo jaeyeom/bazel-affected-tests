@@ -157,6 +157,12 @@ You can create a `.bazel-affected-tests.yaml` file in the repository root to spe
 ```yaml
 version: 1
 
+# Skip files before package resolution (uses glob syntax)
+ignore_paths:
+  - "docs/**"
+  - "**/*.md"
+  - ".semgrep/**"
+
 # Exclude targets discovered via bazel query (uses path.Match syntax)
 exclude:
   - "//tools/format:*"
@@ -210,10 +216,13 @@ The config file uses glob patterns to match files:
 
 ### How It Works
 
-1. Targets matching `exclude` patterns are removed from query results
-2. Each staged file is checked against the `rules` patterns
-3. If any pattern matches, the corresponding targets are added to the output
-4. Targets are deduplicated, so the same target won't appear twice
+1. Files matching `ignore_paths` patterns are removed before any processing
+2. Targets matching `exclude` patterns are removed from query results
+3. Each changed file is checked against the `rules` patterns
+4. If any pattern matches, the corresponding targets are added to the output
+5. Targets are deduplicated, so the same target won't appear twice
+
+The `ignore_paths` field uses glob patterns on file paths to skip files entirely before package resolution. Files matching these patterns are excluded from all processing — no package lookup and no test discovery. This is useful for documentation, config files, or other non-code files that don't affect tests.
 
 The `exclude` field uses `path.Match` syntax on Bazel target labels (e.g., `//tools/format:*` matches all targets in the `//tools/format` package). This is useful for filtering out targets that get discovered via `rdeps` queries but should only be included when explicitly matched by a rule.
 
