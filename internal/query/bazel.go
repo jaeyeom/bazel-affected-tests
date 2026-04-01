@@ -41,6 +41,24 @@ func NewBazelQuerierWithExecutor(exec executor.Executor) *BazelQuerier {
 	}
 }
 
+// collectTests runs a Bazel query and adds the results to testsSet.
+// Returns an error only when failOnError is true and the query fails.
+func (q *BazelQuerier) collectTests(queryStr, label, pkg string, testsSet map[string]bool) error {
+	tests, err := q.query(queryStr)
+	if err != nil {
+		if q.failOnError {
+			return fmt.Errorf("failed to query %s for %s: %w", label, pkg, err)
+		}
+		slog.Warn("Error querying "+label+", continuing...", "package", pkg, "error", err)
+		return nil
+	}
+	slog.Debug(label+" found", "count", len(tests))
+	for _, test := range tests {
+		testsSet[test] = true
+	}
+	return nil
+}
+
 // FindAffectedTests finds test targets affected by changes to the given packages.
 func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 	if len(packages) == 0 {
@@ -66,45 +84,33 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 		slog.Debug("Processing package", "package", pkg)
 
 		// Get tests in the same package
-		samePackageTests, err := q.query(fmt.Sprintf("kind('.*_test rule', %s:*)", pkg))
-		if err != nil {
-			if q.failOnError {
-				return nil, fmt.Errorf("failed to query same package tests for %s: %w", pkg, err)
-			}
-			slog.Warn("Error querying same package tests, continuing...", "package", pkg, "error", err)
-		} else {
-			slog.Debug("Same package tests found", "count", len(samePackageTests))
-			for _, test := range samePackageTests {
-				testsSet[test] = true
-			}
+		if err := q.collectTests(
+			fmt.Sprintf("kind('.*_test rule', %s:*)", pkg),
+			"same package tests", pkg, testsSet,
+		); err != nil {
+			return nil, err
 		}
 
-		// Get tests in sub-packages (e.g., golden tests in child directories)
-		subPackageTests, err := q.query(fmt.Sprintf("kind('.*_test rule', %s/...)", pkg))
-		if err != nil {
-			if q.failOnError {
-				return nil, fmt.Errorf("failed to query sub-package tests for %s: %w", pkg, err)
+		// Get tests in sub-packages (e.g., golden tests in child directories).
+		// Skip for root package "//" because "///..." resolves to "//..." which
+		// matches every test in the entire workspace.
+		if pkg != "//" {
+			if err := q.collectTests(
+				fmt.Sprintf("kind('.*_test rule', %s/...)", pkg),
+				"sub-package tests", pkg, testsSet,
+			); err != nil {
+				return nil, err
 			}
-			slog.Warn("Error querying sub-package tests, continuing...", "package", pkg, "error", err)
 		} else {
-			slog.Debug("Sub-package tests found", "count", len(subPackageTests))
-			for _, test := range subPackageTests {
-				testsSet[test] = true
-			}
+			slog.Debug("Skipping sub-package query for root package")
 		}
 
 		// Get external test dependencies
-		externalTests, err := q.query(fmt.Sprintf("rdeps(//..., %s:*) intersect kind('.*_test rule', //...)", pkg))
-		if err != nil {
-			if q.failOnError {
-				return nil, fmt.Errorf("failed to query external test deps for %s: %w", pkg, err)
-			}
-			slog.Warn("Error querying external test deps, continuing...", "package", pkg, "error", err)
-		} else {
-			slog.Debug("External test deps found", "count", len(externalTests))
-			for _, test := range externalTests {
-				testsSet[test] = true
-			}
+		if err := q.collectTests(
+			fmt.Sprintf("rdeps(//..., %s:*) intersect kind('.*_test rule', //...)", pkg),
+			"external test deps", pkg, testsSet,
+		); err != nil {
+			return nil, err
 		}
 	}
 
