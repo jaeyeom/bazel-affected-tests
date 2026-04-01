@@ -72,7 +72,7 @@ Add to your pre-commit configuration:
 ```yaml
 - id: bazel-affected-tests
   name: Run affected Bazel tests
-  entry: bazel-affected-tests
+  entry: sh -c 'targets=$(bazel-affected-tests) && [ -n "$targets" ] && echo "$targets" | xargs bazel test'
   language: system
 ```
 
