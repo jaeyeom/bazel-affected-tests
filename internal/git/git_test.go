@@ -75,7 +75,7 @@ func TestGetStagedFiles(t *testing.T) {
 			},
 			want:        nil,
 			wantErr:     true,
-			errContains: "failed to get staged files",
+			errContains: "failed to get diff files",
 		},
 	}
 
@@ -108,6 +108,117 @@ func TestGetStagedFiles(t *testing.T) {
 			for i, f := range got {
 				if f != tt.want[i] {
 					t.Errorf("GetStagedFiles()[%d] = %q, want %q", i, f, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGetHeadFiles(t *testing.T) {
+	tests := []struct {
+		name      string
+		setupMock func(m *executor.MockExecutor)
+		want      []string
+		wantErr   bool
+	}{
+		{
+			name: "returns staged and unstaged files",
+			setupMock: func(m *executor.MockExecutor) {
+				m.ExpectCommandWithArgs("git", "diff", "HEAD", "--name-only", "--diff-filter=ACM").
+					WillSucceed("file1.go\nfile2.go", 0).
+					Build()
+			},
+			want: []string{"file1.go", "file2.go"},
+		},
+		{
+			name: "empty output returns empty slice",
+			setupMock: func(m *executor.MockExecutor) {
+				m.ExpectCommandWithArgs("git", "diff", "HEAD", "--name-only", "--diff-filter=ACM").
+					WillSucceed("", 0).
+					Build()
+			},
+			want: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockExec := executor.NewMockExecutor()
+			tt.setupMock(mockExec)
+
+			got, err := GetHeadFiles(context.Background(), mockExec)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i, f := range got {
+				if f != tt.want[i] {
+					t.Errorf("[%d] = %q, want %q", i, f, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGetDiffFiles(t *testing.T) {
+	tests := []struct {
+		name      string
+		ref       string
+		setupMock func(m *executor.MockExecutor)
+		want      []string
+		wantErr   bool
+	}{
+		{
+			name: "diff against main",
+			ref:  "main",
+			setupMock: func(m *executor.MockExecutor) {
+				m.ExpectCommandWithArgs("git", "diff", "main", "--name-only", "--diff-filter=ACM").
+					WillSucceed("pkg/a.go\npkg/b.go", 0).
+					Build()
+			},
+			want: []string{"pkg/a.go", "pkg/b.go"},
+		},
+		{
+			name: "diff against commit SHA",
+			ref:  "abc123",
+			setupMock: func(m *executor.MockExecutor) {
+				m.ExpectCommandWithArgs("git", "diff", "abc123", "--name-only", "--diff-filter=ACM").
+					WillSucceed("changed.go", 0).
+					Build()
+			},
+			want: []string{"changed.go"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockExec := executor.NewMockExecutor()
+			tt.setupMock(mockExec)
+
+			got, err := GetDiffFiles(context.Background(), mockExec, tt.ref)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i, f := range got {
+				if f != tt.want[i] {
+					t.Errorf("[%d] = %q, want %q", i, f, tt.want[i])
 				}
 			}
 		})

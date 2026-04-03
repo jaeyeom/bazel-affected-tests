@@ -39,23 +39,20 @@ func main() {
 		return
 	}
 
-	var changedFiles []string
-	if cfg.filesFrom != "" {
-		var err error
-		changedFiles, err = readFilesFrom(cfg.filesFrom)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading files from %q: %v\n", cfg.filesFrom, err)
-			os.Exit(1)
-		}
-		slog.Debug("Read files from input", "source", cfg.filesFrom, "count", len(changedFiles))
-	} else {
-		var err error
-		changedFiles, err = getStagedFiles()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting staged files: %v\n", err)
-			os.Exit(1)
-		}
-		slog.Debug("Staged files found", "count", len(changedFiles))
+	if countSourceFlags(cfg) > 1 {
+		fmt.Fprintln(os.Stderr, "Error: --staged, --head, --base, and --files-from are mutually exclusive")
+		os.Exit(1)
+	}
+
+	piped := isPipe()
+	if countSourceFlags(cfg) > 0 && piped {
+		fmt.Fprintln(os.Stderr, "Warning: stdin is a pipe but an explicit flag is set; ignoring pipe input")
+	}
+
+	changedFiles, err := getChangedFiles(cfg, piped)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 
 	if len(changedFiles) == 0 {
@@ -104,6 +101,9 @@ type cliConfig struct {
 	clearCache bool
 	noCache    bool
 	filesFrom  string
+	staged     bool
+	head       bool
+	base       string
 }
 
 func parseFlags() cliConfig {
@@ -113,6 +113,9 @@ func parseFlags() cliConfig {
 	flag.BoolVar(&cfg.clearCache, "clear-cache", false, "Clear the cache and exit")
 	flag.BoolVar(&cfg.noCache, "no-cache", false, "Disable caching")
 	flag.StringVar(&cfg.filesFrom, "files-from", "", "Read changed file list from a file (use - for stdin)")
+	flag.BoolVar(&cfg.staged, "staged", false, "Use staged files only (git diff --cached)")
+	flag.BoolVar(&cfg.head, "head", false, "Use staged + unstaged files (git diff HEAD)")
+	flag.StringVar(&cfg.base, "base", "", "Use all changes vs a ref (git diff <ref>)")
 	flag.Parse()
 
 	// Set debug from environment if not set via flag
@@ -123,6 +126,33 @@ func parseFlags() cliConfig {
 	return cfg
 }
 
+// countSourceFlags returns how many file-source flags were explicitly set.
+func countSourceFlags(cfg cliConfig) int {
+	n := 0
+	if cfg.staged {
+		n++
+	}
+	if cfg.head {
+		n++
+	}
+	if cfg.base != "" {
+		n++
+	}
+	if cfg.filesFrom != "" {
+		n++
+	}
+	return n
+}
+
+// isPipe reports whether stdin is connected to a pipe (not a terminal).
+func isPipe() bool {
+	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) == 0
+}
+
 func handleCacheClear(c *cache.Cache) error {
 	if err := c.Clear(); err != nil {
 		return fmt.Errorf("clearing cache: %w", err)
@@ -131,14 +161,64 @@ func handleCacheClear(c *cache.Cache) error {
 	return nil
 }
 
-func getStagedFiles() ([]string, error) {
+func getChangedFiles(cfg cliConfig, piped bool) ([]string, error) {
 	ctx := context.Background()
 	exec := executor.NewBasicExecutor()
-	files, err := git.GetStagedFiles(ctx, exec)
-	if err != nil {
-		return nil, fmt.Errorf("getting staged files: %w", err)
+
+	switch {
+	case cfg.filesFrom != "":
+		files, err := readFilesFrom(cfg.filesFrom)
+		if err != nil {
+			return nil, fmt.Errorf("reading files from %q: %w", cfg.filesFrom, err)
+		}
+		slog.Debug("Read files from input", "source", cfg.filesFrom, "count", len(files))
+		return files, nil
+	case cfg.staged:
+		files, err := git.GetStagedFiles(ctx, exec)
+		if err != nil {
+			return nil, fmt.Errorf("getting staged files: %w", err)
+		}
+		slog.Debug("Staged files found", "count", len(files))
+		return files, nil
+	case cfg.head:
+		files, err := git.GetHeadFiles(ctx, exec)
+		if err != nil {
+			return nil, fmt.Errorf("getting HEAD diff files: %w", err)
+		}
+		slog.Debug("HEAD diff files found", "count", len(files))
+		return files, nil
+	case cfg.base != "":
+		files, err := git.GetDiffFiles(ctx, exec, cfg.base)
+		if err != nil {
+			return nil, fmt.Errorf("getting diff files vs %q: %w", cfg.base, err)
+		}
+		slog.Debug("Base diff files found", "base", cfg.base, "count", len(files))
+		return files, nil
+	default:
+		// Auto mode: pipe → staged → HEAD
+		if piped {
+			files, err := readFilesFrom("-")
+			if err != nil {
+				return nil, fmt.Errorf("reading from stdin pipe: %w", err)
+			}
+			slog.Debug("Read files from pipe", "count", len(files))
+			return files, nil
+		}
+		files, err := git.GetStagedFiles(ctx, exec)
+		if err != nil {
+			return nil, fmt.Errorf("getting staged files: %w", err)
+		}
+		if len(files) > 0 {
+			slog.Debug("Auto: using staged files", "count", len(files))
+			return files, nil
+		}
+		files, err = git.GetHeadFiles(ctx, exec)
+		if err != nil {
+			return nil, fmt.Errorf("getting HEAD diff files: %w", err)
+		}
+		slog.Debug("Auto: using HEAD diff files", "count", len(files))
+		return files, nil
 	}
-	return files, nil
 }
 
 func getCacheKey(c *cache.Cache, noCache bool, repoRoot string) string {

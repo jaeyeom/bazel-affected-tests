@@ -11,9 +11,23 @@ import (
 
 // GetStagedFiles returns the list of staged files (Added, Copied, Modified - not Deleted).
 func GetStagedFiles(ctx context.Context, exec executor.Executor) ([]string, error) {
-	output, err := executor.Output(ctx, exec, "git", "diff", "--cached", "--name-only", "--diff-filter=ACM")
+	return getDiffFiles(ctx, exec, "git", "diff", "--cached", "--name-only", "--diff-filter=ACM")
+}
+
+// GetHeadFiles returns files that differ from HEAD (staged + unstaged changes).
+func GetHeadFiles(ctx context.Context, exec executor.Executor) ([]string, error) {
+	return getDiffFiles(ctx, exec, "git", "diff", "HEAD", "--name-only", "--diff-filter=ACM")
+}
+
+// GetDiffFiles returns files that differ from the given ref.
+func GetDiffFiles(ctx context.Context, exec executor.Executor, ref string) ([]string, error) {
+	return getDiffFiles(ctx, exec, "git", "diff", ref, "--name-only", "--diff-filter=ACM")
+}
+
+func getDiffFiles(ctx context.Context, exec executor.Executor, name string, args ...string) ([]string, error) {
+	output, err := executor.Output(ctx, exec, name, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get staged files: %w", err)
+		return nil, fmt.Errorf("failed to get diff files: %w", err)
 	}
 
 	if len(output) == 0 {

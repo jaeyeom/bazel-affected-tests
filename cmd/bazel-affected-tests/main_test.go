@@ -16,6 +16,31 @@ func sorted(xs []string) []string {
 	return out
 }
 
+func TestCountSourceFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  cliConfig
+		want int
+	}{
+		{"no flags", cliConfig{}, 0},
+		{"staged only", cliConfig{staged: true}, 1},
+		{"head only", cliConfig{head: true}, 1},
+		{"base only", cliConfig{base: "main"}, 1},
+		{"files-from only", cliConfig{filesFrom: "list.txt"}, 1},
+		{"staged and head", cliConfig{staged: true, head: true}, 2},
+		{"staged and base", cliConfig{staged: true, base: "main"}, 2},
+		{"all four", cliConfig{staged: true, head: true, base: "main", filesFrom: "-"}, 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := countSourceFlags(tt.cfg); got != tt.want {
+				t.Errorf("countSourceFlags() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetPackageTests_UsesCacheWhenAvailable(t *testing.T) {
 	tmpDir := t.TempDir()
 	c := cache.NewCache(tmpDir)
