@@ -23,6 +23,10 @@ type Config struct {
 	// package resolution. Files matching these patterns are excluded from all
 	// processing — no package lookup and no test discovery.
 	IgnorePaths []string `yaml:"ignore_paths"`
+	// EnableSubpackageQuery controls whether the sub-package test query
+	// (kind('.*_test rule', PKG/...)) is executed. When false, only
+	// same-package and rdeps queries run. Defaults to true if unset.
+	EnableSubpackageQuery *bool `yaml:"enable_subpackage_query"`
 	// Exclude is a list of path.Match patterns for targets to exclude from query results.
 	Exclude []string `yaml:"exclude"`
 	// Rules maps file glob patterns to Bazel targets to include when matched.
@@ -81,6 +85,12 @@ func (c *Config) shouldIgnoreFile(file string) bool {
 		}
 	}
 	return false
+}
+
+// SubpackageQueryEnabled reports whether the sub-package test query is enabled.
+// Returns true if EnableSubpackageQuery is nil (unset) or explicitly true.
+func (c *Config) SubpackageQueryEnabled() bool {
+	return c.EnableSubpackageQuery == nil || *c.EnableSubpackageQuery
 }
 
 // ShouldExclude reports whether the given target matches any exclude pattern.

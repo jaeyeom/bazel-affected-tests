@@ -163,6 +163,12 @@ ignore_paths:
   - "**/*.md"
   - ".semgrep/**"
 
+# Disable the sub-package test query (PKG/...) for more precise results.
+# When true (default), tests in child packages are also discovered.
+# Set to false if your rdeps queries are reliable and you want to avoid
+# over-inclusion of unrelated sub-package tests.
+enable_subpackage_query: false
+
 # Exclude targets discovered via bazel query (uses path.Match syntax)
 exclude:
   - "//tools/format:*"

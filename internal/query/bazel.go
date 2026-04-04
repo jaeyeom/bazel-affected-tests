@@ -18,16 +18,18 @@ var validPkgPattern = regexp.MustCompile(`^//[a-zA-Z0-9_./-]*$`)
 
 // BazelQuerier executes Bazel queries.
 type BazelQuerier struct {
-	executor    executor.Executor
-	failOnError bool // If true, return errors from query failures; if false, log and continue
+	executor              executor.Executor
+	failOnError           bool // If true, return errors from query failures; if false, log and continue
+	enableSubpackageQuery bool // If true, run sub-package test queries (PKG/...)
 }
 
 // NewBazelQuerier creates a new BazelQuerier.
 func NewBazelQuerier() *BazelQuerier {
 	failOnError := os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "true" || os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "1"
 	return &BazelQuerier{
-		executor:    executor.NewBasicExecutor(),
-		failOnError: failOnError,
+		executor:              executor.NewBasicExecutor(),
+		failOnError:           failOnError,
+		enableSubpackageQuery: true,
 	}
 }
 
@@ -36,9 +38,16 @@ func NewBazelQuerier() *BazelQuerier {
 func NewBazelQuerierWithExecutor(exec executor.Executor) *BazelQuerier {
 	failOnError := os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "true" || os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "1"
 	return &BazelQuerier{
-		executor:    exec,
-		failOnError: failOnError,
+		executor:              exec,
+		failOnError:           failOnError,
+		enableSubpackageQuery: true,
 	}
+}
+
+// SetEnableSubpackageQuery controls whether sub-package test queries (PKG/...)
+// are executed. When disabled, only same-package and rdeps queries run.
+func (q *BazelQuerier) SetEnableSubpackageQuery(enable bool) {
+	q.enableSubpackageQuery = enable
 }
 
 // collectTests runs a Bazel query and adds the results to testsSet.
@@ -94,15 +103,19 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 		// Get tests in sub-packages (e.g., golden tests in child directories).
 		// Skip for root package "//" because "///..." resolves to "//..." which
 		// matches every test in the entire workspace.
-		if pkg != "//" {
+		// Also skip when sub-package queries are disabled via config.
+		switch {
+		case !q.enableSubpackageQuery:
+			slog.Debug("Skipping sub-package query (disabled by config)")
+		case pkg == "//":
+			slog.Debug("Skipping sub-package query for root package")
+		default:
 			if err := q.collectTests(
 				fmt.Sprintf("kind('.*_test rule', %s/...)", pkg),
 				"sub-package tests", pkg, testsSet,
 			); err != nil {
 				return nil, err
 			}
-		} else {
-			slog.Debug("Skipping sub-package query for root package")
 		}
 
 		// Get external test dependencies

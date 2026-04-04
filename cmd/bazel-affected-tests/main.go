@@ -81,7 +81,7 @@ func main() {
 
 	cacheKey := getCacheKey(c, cfg.noCache, repoRoot)
 
-	querier := query.NewBazelQuerier()
+	querier := newQuerier(repoCfg)
 	allTests := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
 
 	var configTargets []string
@@ -151,6 +151,14 @@ func isPipe() bool {
 		return false
 	}
 	return (stat.Mode() & os.ModeCharDevice) == 0
+}
+
+func newQuerier(repoCfg *config.Config) *query.BazelQuerier {
+	q := query.NewBazelQuerier()
+	if repoCfg != nil {
+		q.SetEnableSubpackageQuery(repoCfg.SubpackageQueryEnabled())
+	}
+	return q
 }
 
 func handleCacheClear(c *cache.Cache) error {

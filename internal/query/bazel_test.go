@@ -384,6 +384,50 @@ func TestFindAffectedTests_SubPackageTests_RdepsFails(t *testing.T) {
 	}
 }
 
+func TestFindAffectedTests_SubPackageQueryDisabled(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+	q.SetEnableSubpackageQuery(false)
+
+	// Same-package tests query
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+		WillSucceed("//pkg/foo:foo_test", 0).
+		Build()
+
+	// Sub-package query should NOT be called when disabled
+	// (no expectation set for "kind('.*_test rule', //pkg/foo/...)")
+
+	// External rdeps query
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+		WillSucceed("//other:dep_test", 0).
+		Build()
+
+	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
+	if err != nil {
+		t.Fatalf("FindAffectedTests failed: %v", err)
+	}
+
+	expectedTests := map[string]bool{
+		"//pkg/foo:foo_test": true,
+		"//other:dep_test":   true,
+	}
+
+	if len(tests) != len(expectedTests) {
+		t.Errorf("Expected %d tests, got %d: %v", len(expectedTests), len(tests), tests)
+	}
+
+	for _, test := range tests {
+		if !expectedTests[test] {
+			t.Errorf("Unexpected test: %s", test)
+		}
+	}
+
+	// Verify no sub-package query was made
+	if err := mockExec.AssertExpectationsMet(); err != nil {
+		t.Errorf("Mock expectations not met: %v", err)
+	}
+}
+
 func TestFindAffectedTests_RootPackageSkipsSubPackageQuery(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)

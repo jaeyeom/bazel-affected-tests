@@ -320,6 +320,92 @@ ignore_paths:
 	}
 }
 
+func TestConfig_SubpackageQueryEnabled(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name   string
+		config *Config
+		want   bool
+	}{
+		{
+			name:   "nil pointer defaults to true",
+			config: &Config{Version: 1},
+			want:   true,
+		},
+		{
+			name:   "explicitly true",
+			config: &Config{Version: 1, EnableSubpackageQuery: boolPtr(true)},
+			want:   true,
+		},
+		{
+			name:   "explicitly false",
+			config: &Config{Version: 1, EnableSubpackageQuery: boolPtr(false)},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.config.SubpackageQueryEnabled(); got != tt.want {
+				t.Errorf("SubpackageQueryEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_WithEnableSubpackageQuery(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name    string
+		content string
+		want    *bool
+	}{
+		{
+			name:    "not set",
+			content: "version: 1\n",
+			want:    nil,
+		},
+		{
+			name:    "set to false",
+			content: "version: 1\nenable_subpackage_query: false\n",
+			want:    boolPtr(false),
+		},
+		{
+			name:    "set to true",
+			content: "version: 1\nenable_subpackage_query: true\n",
+			want:    boolPtr(true),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := LoadConfig(tmpDir)
+			if err != nil {
+				t.Fatalf("LoadConfig() error = %v", err)
+			}
+
+			if tt.want == nil {
+				if got.EnableSubpackageQuery != nil {
+					t.Errorf("EnableSubpackageQuery = %v, want nil", *got.EnableSubpackageQuery)
+				}
+			} else {
+				if got.EnableSubpackageQuery == nil {
+					t.Errorf("EnableSubpackageQuery = nil, want %v", *tt.want)
+				} else if *got.EnableSubpackageQuery != *tt.want {
+					t.Errorf("EnableSubpackageQuery = %v, want %v", *got.EnableSubpackageQuery, *tt.want)
+				}
+			}
+		})
+	}
+}
+
 func TestConfig_MatchTargets_Deduplication(t *testing.T) {
 	config := &Config{
 		Version: 1,
