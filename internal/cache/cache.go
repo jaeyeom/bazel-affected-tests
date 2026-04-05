@@ -1,4 +1,15 @@
 // Package cache manages caching of Bazel query results.
+//
+// It stores per-package test target lists on disk as JSON files, keyed by a
+// content hash of all BUILD, BUILD.bazel, and .bzl files in the repository.
+// When the build graph hasn't changed (same hash), cached results are returned
+// instead of re-running expensive `bazel query` operations.
+//
+// Cache layout on disk:
+//
+//	<cacheDir>/<cacheKey>/<sanitizedPkg>.json
+//
+// The default cache directory is ~/.cache/bazel-affected-tests.
 package cache
 
 import (
