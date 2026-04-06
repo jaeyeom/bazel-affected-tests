@@ -127,7 +127,7 @@ interface (easily mockable).
 
 ## Medium Priority
 
-### 8. Add `.claude/` and `.omc/` to `.gitignore`
+### 8. ~~Add `.claude/` and `.omc/` to `.gitignore`~~ (DONE)
 
 These directories are excluded by global gitignore but contributors won't have
 that configuration.
@@ -140,7 +140,7 @@ that configuration.
 .omc/
 ```
 
-### 9. Guard against cache path traversal
+### 9. ~~Guard against cache path traversal~~ (DONE)
 
 **File:** `internal/cache/cache.go:123-132`
 
@@ -166,7 +166,7 @@ func (c *Cache) getCacheFile(cacheKey, pkg string) string {
 }
 ```
 
-### 10. Replace `os.Exit` in `handleCacheClear` with error return
+### 10. ~~Replace `os.Exit` in `handleCacheClear` with error return~~ (DONE)
 
 **File:** `cmd/bazel-affected-tests/main.go:98,103`
 
@@ -223,7 +223,7 @@ if os.Getenv("GOOS") == "windows" {
 if runtime.GOOS == "windows" {
 ```
 
-### 13. Validate Bazel package labels before query interpolation
+### 13. ~~Validate Bazel package labels before query interpolation~~ (DONE)
 
 **File:** `internal/query/bazel.go:66,80`
 
