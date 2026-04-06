@@ -94,7 +94,7 @@ if err != nil {
 }
 ```
 
-### 6. Remove global slog mutation from constructors
+### 6. ~~Remove global slog mutation from constructors~~ (DONE)
 
 **Files:**
 - `internal/cache/cache.go:23`
