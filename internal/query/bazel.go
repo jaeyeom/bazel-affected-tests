@@ -52,8 +52,9 @@ func (q *BazelQuerier) SetEnableSubpackageQuery(enable bool) {
 
 // collectTests runs a Bazel query and adds the results to testsSet.
 // Returns an error only when failOnError is true and the query fails.
-func (q *BazelQuerier) collectTests(queryStr, label, pkg string, testsSet map[string]bool) error {
-	tests, err := q.query(queryStr)
+// Extra args are forwarded to the underlying bazel query invocation.
+func (q *BazelQuerier) collectTests(queryStr, label, pkg string, testsSet map[string]bool, extraArgs ...string) error {
+	tests, err := q.query(queryStr, extraArgs...)
 	if err != nil {
 		if q.failOnError {
 			return fmt.Errorf("failed to query %s for %s: %w", label, pkg, err)
@@ -122,6 +123,7 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 		if err := q.collectTests(
 			fmt.Sprintf("rdeps(//..., %s:*) intersect kind('.*_test rule', //...)", pkg),
 			"external test deps", pkg, testsSet,
+			"--keep_going", "--nohost_deps", "--noimplicit_deps",
 		); err != nil {
 			return nil, err
 		}
@@ -135,14 +137,19 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 	return allTests, nil
 }
 
-// query executes a single bazel query.
-func (q *BazelQuerier) query(queryStr string) ([]string, error) {
+// query executes a single bazel query. Extra args are inserted between the
+// standard flags and the query string.
+func (q *BazelQuerier) query(queryStr string, extraArgs ...string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	args := []string{"query", "--noblock_for_lock"}
+	args = append(args, extraArgs...)
+	args = append(args, queryStr)
+
 	result, err := q.executor.Execute(ctx, executor.ToolConfig{
 		Command:        "bazel",
-		Args:           []string{"query", "--noblock_for_lock", queryStr},
+		Args:           args,
 		Timeout:        30 * time.Second,
 		CommandBuilder: &executor.ShellCommandBuilder{},
 	})
