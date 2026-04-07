@@ -91,8 +91,30 @@ func main() {
 		slog.Debug("Config targets matched", "count", len(configTargets))
 	}
 
-	// Merge and output
-	outputResults(allTests, configTargets)
+	// Merge and deduplicate
+	allTargets := mergeTargets(allTests, configTargets)
+	outputOrRun(cfg.run, allTargets)
+}
+
+// outputOrRun either prints the targets to stdout or runs bazel test with them.
+func outputOrRun(run bool, targets []string) {
+	if !run {
+		for _, target := range targets {
+			fmt.Println(target)
+		}
+		return
+	}
+
+	if len(targets) == 0 {
+		return
+	}
+
+	exitCode, err := runBazelTest(executor.NewBasicExecutor(), targets)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error running bazel test: %v\n", err)
+		os.Exit(1)
+	}
+	os.Exit(exitCode)
 }
 
 type cliConfig struct {
@@ -104,6 +126,7 @@ type cliConfig struct {
 	staged     bool
 	head       bool
 	base       string
+	run        bool
 }
 
 func parseFlags() cliConfig {
@@ -116,6 +139,7 @@ func parseFlags() cliConfig {
 	flag.BoolVar(&cfg.staged, "staged", false, "Use staged files only (git diff --cached)")
 	flag.BoolVar(&cfg.head, "head", false, "Use staged + unstaged files (git diff HEAD)")
 	flag.StringVar(&cfg.base, "base", "", "Use all changes vs a ref (git diff <ref>)")
+	flag.BoolVar(&cfg.run, "run", false, "Run bazel test with affected targets instead of printing them")
 	flag.Parse()
 
 	// Set debug from environment if not set via flag
@@ -304,8 +328,8 @@ func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, ca
 	return tests
 }
 
-func outputResults(tests []string, configTargets []string) {
-	// Merge and deduplicate
+// mergeTargets deduplicates and sorts the given test and config targets.
+func mergeTargets(tests []string, configTargets []string) []string {
 	allTargets := make(map[string]bool)
 	for _, test := range tests {
 		allTargets[test] = true
@@ -314,16 +338,37 @@ func outputResults(tests []string, configTargets []string) {
 		allTargets[target] = true
 	}
 
-	// Convert to sorted slice
 	result := make([]string, 0, len(allTargets))
 	for target := range allTargets {
 		result = append(result, target)
 	}
 	sort.Strings(result)
+	return result
+}
 
-	for _, target := range result {
-		fmt.Println(target)
+// runBazelTest executes bazel test with the given targets and returns the exit code.
+func runBazelTest(exec executor.Executor, targets []string) (int, error) {
+	ctx := context.Background()
+
+	args := append([]string{"test"}, targets...)
+
+	result, err := exec.Execute(ctx, executor.ToolConfig{
+		Command:        "bazel",
+		Args:           args,
+		CommandBuilder: &executor.ShellCommandBuilder{},
+	})
+	if err != nil {
+		return 1, fmt.Errorf("executing bazel test: %w", err)
 	}
+
+	if result.Output != "" {
+		fmt.Print(result.Output)
+	}
+	if result.Stderr != "" {
+		fmt.Fprint(os.Stderr, result.Stderr)
+	}
+
+	return result.ExitCode, nil
 }
 
 // readFilesFrom reads non-empty lines from the given path. If path is "-",

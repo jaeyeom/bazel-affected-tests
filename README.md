@@ -16,6 +16,7 @@ staging area.
 - **Cross-platform**: Works on Linux, macOS, and Windows
 - **Config File Support**: Add custom targets based on file patterns (e.g., format tests)
 - **Debug Mode**: Detailed output for troubleshooting
+- **Built-in execution**: Run affected tests directly with `--run` — no `xargs` needed
 
 ## Installation
 
@@ -31,7 +32,11 @@ go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@late
 # Run the tool (outputs affected test targets)
 bazel-affected-tests
 
-# Or pipe to xargs to run the tests
+# Run affected tests directly
+bazel-affected-tests --run
+
+# Or pipe to xargs to run the tests (cross-platform note: GNU xargs
+# needs -r / --no-run-if-empty to avoid running bazel with no targets)
 bazel-affected-tests | xargs bazel test
 ```
 
@@ -42,6 +47,7 @@ bazel-affected-tests | xargs bazel test
 - `--clear-cache`: Clear the cache and exit
 - `--no-cache`: Disable caching for this run
 - `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
+- `--run`: Run `bazel test` with the affected targets instead of printing them
 
 ### Examples
 
@@ -55,8 +61,15 @@ bazel-affected-tests --clear-cache
 # Run without cache
 bazel-affected-tests --no-cache
 
-# Use in a pre-commit hook to run affected tests
-bazel-affected-tests | xargs bazel test
+# Run affected tests directly (no xargs needed)
+bazel-affected-tests --run
+
+# Combine with other flags
+bazel-affected-tests --run --staged
+bazel-affected-tests --run --base main
+
+# Use xargs (note: add -r on GNU/Linux to avoid running bazel with no targets)
+bazel-affected-tests | xargs -r bazel test
 
 # Read changed files from stdin
 git diff --name-only main | bazel-affected-tests --files-from -
@@ -70,6 +83,14 @@ bazel-affected-tests --files-from changed_files.txt
 Add to your pre-commit configuration:
 
 ```yaml
+- id: bazel-affected-tests
+  name: Run affected Bazel tests
+  entry: bazel-affected-tests --run
+  language: system
+```
+
+```yaml
+# Alternative using xargs (works on macOS; add -r for GNU/Linux)
 - id: bazel-affected-tests
   name: Run affected Bazel tests
   entry: sh -c 'targets=$(bazel-affected-tests) && [ -n "$targets" ] && echo "$targets" | xargs bazel test'

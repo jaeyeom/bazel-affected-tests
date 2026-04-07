@@ -10,6 +10,77 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
+func TestMergeTargets(t *testing.T) {
+	tests := []struct {
+		name          string
+		tests         []string
+		configTargets []string
+		want          []string
+	}{
+		{"empty", nil, nil, []string{}},
+		{"tests only", []string{"//a:t1", "//b:t2"}, nil, []string{"//a:t1", "//b:t2"}},
+		{"config only", nil, []string{"//c:t3"}, []string{"//c:t3"}},
+		{"deduplicates", []string{"//a:t1", "//b:t2"}, []string{"//a:t1", "//c:t3"}, []string{"//a:t1", "//b:t2", "//c:t3"}},
+		{"sorted", []string{"//z:t", "//a:t"}, nil, []string{"//a:t", "//z:t"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mergeTargets(tt.tests, tt.configTargets)
+			if len(got) == 0 && len(tt.want) == 0 {
+				return // both empty
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("mergeTargets() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRunBazelTest(t *testing.T) {
+	targets := []string{"//pkg/foo:test1", "//pkg/bar:test2"}
+
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("bazel", "test", "//pkg/foo:test1", "//pkg/bar:test2").
+		WillSucceed("", 0).
+		Once().
+		Build()
+
+	exitCode, err := runBazelTest(mockExec, targets)
+	if err != nil {
+		t.Fatalf("runBazelTest() error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("exit code = %d, want 0", exitCode)
+	}
+
+	if err := mockExec.AssertExpectationsMet(); err != nil {
+		t.Errorf("mock expectations not met: %v", err)
+	}
+}
+
+func TestRunBazelTest_Failure(t *testing.T) {
+	targets := []string{"//pkg/foo:failing_test"}
+
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("bazel", "test", "//pkg/foo:failing_test").
+		WillSucceed("", 3). // bazel test returns non-zero for test failures
+		Once().
+		Build()
+
+	exitCode, err := runBazelTest(mockExec, targets)
+	if err != nil {
+		t.Fatalf("runBazelTest() error: %v", err)
+	}
+	if exitCode != 3 {
+		t.Errorf("exit code = %d, want 3", exitCode)
+	}
+
+	if err := mockExec.AssertExpectationsMet(); err != nil {
+		t.Errorf("mock expectations not met: %v", err)
+	}
+}
+
 func sorted(xs []string) []string {
 	out := slices.Clone(xs)
 	slices.Sort(out)
