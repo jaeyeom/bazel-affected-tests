@@ -13,7 +13,7 @@ staging area.
 
 - **Fast**: 10-100x faster than shell implementation with caching
 - **Smart Caching**: Caches results based on BUILD file content hashes
-- **Cross-platform**: Works on Linux, macOS, and Windows
+- **Cross-platform**: Works on Linux and macOS (Windows may work but is untested)
 - **Config File Support**: Add custom targets based on file patterns (e.g., format tests)
 - **Debug Mode**: Detailed output for troubleshooting
 - **Built-in execution**: Run affected tests directly with `--run` — no `xargs` needed
@@ -101,7 +101,10 @@ Make sure to run `go install` first to ensure the binary is in your PATH.
 
 ## How It Works
 
-1. **File Detection**: Gets changed files from `--files-from` if specified, otherwise from git staged files (Added, Copied, Modified - not Deleted)
+1. **File Detection**: Determines changed files using this priority order:
+   - `--files-from`, `--staged`, `--head`, or `--base` if explicitly given (mutually exclusive)
+   - Otherwise, **auto-detection**: piped stdin → git staged files → `git diff HEAD` (staged + unstaged)
+   - Only Added, Copied, and Modified files are included (not Deleted)
 2. **Package Finding**: Finds the nearest Bazel package (directory with BUILD file) for each file
 3. **Test Discovery**: Uses `bazel query` to find:
    - Test targets within the same package

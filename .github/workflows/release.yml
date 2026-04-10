@@ -21,6 +21,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Validate
+        run: make check && make build
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:

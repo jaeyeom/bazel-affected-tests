@@ -9,6 +9,16 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
+// RepoRoot returns the absolute path to the top-level directory of the git
+// repository. It shells out to "git rev-parse --show-toplevel".
+func RepoRoot(ctx context.Context, exec executor.Executor) (string, error) {
+	output, err := executor.Output(ctx, exec, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("failed to find git repo root: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // GetStagedFiles returns the list of staged files (Added, Copied, Modified - not Deleted).
 func GetStagedFiles(ctx context.Context, exec executor.Executor) ([]string, error) {
 	return getDiffFiles(ctx, exec, "git", "diff", "--cached", "--name-only", "--diff-filter=ACM")

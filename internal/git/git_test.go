@@ -8,6 +8,63 @@ import (
 	executor "github.com/jaeyeom/go-cmdexec"
 )
 
+func TestRepoRoot(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupMock   func(m *executor.MockExecutor)
+		want        string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "returns trimmed repo root",
+			setupMock: func(m *executor.MockExecutor) {
+				m.ExpectCommandWithArgs("git", "rev-parse", "--show-toplevel").
+					WillSucceed("/home/user/repo\n", 0).
+					Build()
+			},
+			want: "/home/user/repo",
+		},
+		{
+			name: "error when not a git repo",
+			setupMock: func(m *executor.MockExecutor) {
+				m.ExpectCommandWithArgs("git", "rev-parse", "--show-toplevel").
+					WillError(errors.New("not a git repository")).
+					Build()
+			},
+			wantErr:     true,
+			errContains: "failed to find git repo root",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockExec := executor.NewMockExecutor()
+			tt.setupMock(mockExec)
+
+			got, err := RepoRoot(context.Background(), mockExec)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("RepoRoot() expected error, got nil")
+				}
+				if tt.errContains != "" && !containsStr(err.Error(), tt.errContains) {
+					t.Errorf("RepoRoot() error = %q, want it to contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("RepoRoot() unexpected error: %v", err)
+			}
+
+			if got != tt.want {
+				t.Errorf("RepoRoot() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetStagedFiles(t *testing.T) {
 	tests := []struct {
 		name        string

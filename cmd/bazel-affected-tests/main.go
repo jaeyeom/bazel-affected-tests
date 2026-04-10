@@ -23,9 +23,9 @@ func main() {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
-	repoRoot, err := os.Getwd()
+	repoRoot, err := git.RepoRoot(context.Background(), executor.NewBasicExecutor())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting working directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: not a git repository (or any parent): %v\n", err)
 		os.Exit(1)
 	}
 
