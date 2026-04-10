@@ -147,15 +147,15 @@ func TestGetPackageTests_CacheMissQueriesAndStores(t *testing.T) {
 	// 2. kind('.*_test rule', PKG/...)       -- sub-package tests
 	// 3. rdeps(//..., PKG:*) intersect ...   -- reverse-dep tests
 	mockExec := executor.NewMockExecutor()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:unit_test", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:unit_test", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("//dep:dep_test", 0).
 		Once().
 		Build()
@@ -189,15 +189,15 @@ func TestGetPackageTests_NoCacheFlagBypassesReadAndWrite(t *testing.T) {
 	}
 
 	mockExec := executor.NewMockExecutor()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:new_test", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:new_test", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Once().
 		Build()
@@ -227,15 +227,15 @@ func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 	pkg := "//pkg/foo"
 
 	mockExec := executor.NewMockExecutor()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:new_test", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:new_test", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Once().
 		Build()

@@ -143,7 +143,7 @@ func (q *BazelQuerier) query(queryStr string, extraArgs ...string) ([]string, er
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	args := []string{"query", "--noblock_for_lock"}
+	args := []string{"query"}
 	args = append(args, extraArgs...)
 	args = append(args, queryStr)
 

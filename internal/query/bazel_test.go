@@ -62,19 +62,19 @@ func TestFindAffectedTests_SinglePackageWithTests(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Mock same-package tests query
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:foo_test\n//pkg/foo:bar_test", 0).
 		Once().
 		Build()
 
 	// Mock sub-package tests query
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:foo_test\n//pkg/foo:bar_test", 0).
 		Once().
 		Build()
 
 	// Mock external test deps query
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("//other/pkg:other_test", 0).
 		Once().
 		Build()
@@ -111,24 +111,24 @@ func TestFindAffectedTests_MultiplePackages(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Package 1 queries
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:foo_test", 0).
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:foo_test", 0).
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Build()
 
 	// Package 2 queries
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/bar:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/bar:*)").
 		WillSucceed("//pkg/bar:bar_test", 0).
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/bar/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/bar/...)").
 		WillSucceed("//pkg/bar:bar_test", 0).
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/bar:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/bar:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Build()
 
@@ -152,15 +152,15 @@ func TestFindAffectedTests_DeduplicatePackages(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Should only execute once for the duplicate package
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:test", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:test", 0).
 		Once().
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Once().
 		Build()
@@ -185,13 +185,13 @@ func TestFindAffectedTests_EmptyQueryResults(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// All queries return empty results
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("", 0).
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("", 0).
 		Build()
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Build()
 
@@ -210,17 +210,17 @@ func TestFindAffectedTests_QueryErrorHandling(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// First query succeeds
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:test", 0).
 		Build()
 
 	// Sub-package query succeeds
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:test", 0).
 		Build()
 
 	// External rdeps query fails but is ignored (error handling in code)
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillFail("query error", 1).
 		Build()
 
@@ -240,10 +240,10 @@ func TestFindAffectedTests_BazelEmptyResultExitCode(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Bazel returns non-zero exit code but no stderr (empty result)
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillReturn(&executor.ExecutionResult{
 			Command:   "bazel",
-			Args:      []string{"query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)"},
+			Args:      []string{"query", "kind('.*_test rule', //pkg/foo:*)"},
 			Output:    "",
 			Stderr:    "", // No stderr means empty result, not error
 			ExitCode:  1,
@@ -252,11 +252,11 @@ func TestFindAffectedTests_BazelEmptyResultExitCode(t *testing.T) {
 		}, nil).
 		Build()
 
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("", 0).
 		Build()
 
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Build()
 
@@ -275,15 +275,15 @@ func TestFindAffectedTests_DeduplicateTestTargets(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same test appears in multiple queries
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:shared_test", 0).
 		Build()
 
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:shared_test", 0).
 		Build()
 
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("//pkg/foo:shared_test\n//other:test", 0).
 		Build()
 
@@ -314,17 +314,17 @@ func TestFindAffectedTests_SubPackageTests(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package tests query
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:foo_test", 0).
 		Build()
 
 	// Sub-package tests query - finds tests in sub-packages
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:foo_test\n//pkg/foo/golden_test:golden_test", 0).
 		Build()
 
 	// External rdeps query
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("", 0).
 		Build()
 
@@ -354,17 +354,17 @@ func TestFindAffectedTests_SubPackageTests_RdepsFails(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package tests
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:foo_test", 0).
 		Build()
 
 	// Sub-package tests - catches golden_test even when rdeps fails
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:foo_test\n//pkg/foo/golden_test:golden_test", 0).
 		Build()
 
 	// External rdeps query fails (e.g., timeout on large monorepo)
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillFail("query error", 7).
 		Build()
 
@@ -390,7 +390,7 @@ func TestFindAffectedTests_SubPackageQueryDisabled(t *testing.T) {
 	q.SetEnableSubpackageQuery(false)
 
 	// Same-package tests query
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:foo_test", 0).
 		Build()
 
@@ -398,7 +398,7 @@ func TestFindAffectedTests_SubPackageQueryDisabled(t *testing.T) {
 	// (no expectation set for "kind('.*_test rule', //pkg/foo/...)")
 
 	// External rdeps query
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("//other:dep_test", 0).
 		Build()
 
@@ -433,7 +433,7 @@ func TestFindAffectedTests_RootPackageSkipsSubPackageQuery(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package tests query for root package
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //:*)").
 		WillSucceed("//:buildifier\n//:requirements_test", 0).
 		Build()
 
@@ -441,7 +441,7 @@ func TestFindAffectedTests_RootPackageSkipsSubPackageQuery(t *testing.T) {
 	// (no expectation set for "kind('.*_test rule', ///...)")
 
 	// External rdeps query for root package
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("//:buildifier\n//:requirements_test\n//:codeowners_sort_test", 0).
 		Build()
 
@@ -477,7 +477,7 @@ func TestQuery_ExecutorError(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Mock executor error (not exit code)
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "//...").
 		WillError(errors.New("executor error")).
 		Build()
 
@@ -499,10 +499,10 @@ func TestQuery_NonZeroExitWithStderr(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)
 
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "invalid query").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "invalid query").
 		WillReturn(&executor.ExecutionResult{
 			Command:   "bazel",
-			Args:      []string{"query", "--noblock_for_lock", "invalid query"},
+			Args:      []string{"query", "invalid query"},
 			Output:    "",
 			Stderr:    "ERROR: Invalid query syntax",
 			ExitCode:  1,
@@ -530,7 +530,7 @@ func TestQuery_MultilineOutput(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	output := "//pkg/foo:test1\n//pkg/foo:test2\n//pkg/bar:test3\n"
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "//...").
 		WillSucceed(output, 0).
 		Build()
 
@@ -564,7 +564,7 @@ func TestQuery_EmptyLinesFiltered(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	output := "//pkg/foo:test1\n\n\n//pkg/foo:test2\n\n"
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "//...").
 		WillSucceed(output, 0).
 		Build()
 
@@ -586,7 +586,7 @@ func TestQuery_Timeout(t *testing.T) {
 	var capturedConfig executor.ToolConfig
 	mockExec.ExpectCustom(func(_ context.Context, cfg executor.ToolConfig) bool {
 		capturedConfig = cfg
-		return cfg.Command == "bazel" && len(cfg.Args) == 3 // query, --noblock_for_lock, queryStr
+		return cfg.Command == "bazel" && len(cfg.Args) == 2 // query, queryStr
 	}).WillSucceed("//test:target", 0).Build()
 
 	_, err := q.query("//...")
@@ -707,7 +707,7 @@ func TestFindAffectedTests_FailOnError_True(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package query fails
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillFail("query error", 1).
 		Build()
 
@@ -744,17 +744,17 @@ func TestFindAffectedTests_FailOnError_ExternalTestDeps(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package query succeeds
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillSucceed("//pkg/foo:test", 0).
 		Build()
 
 	// Sub-package query succeeds
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("//pkg/foo:test", 0).
 		Build()
 
 	// External test deps query fails
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillFail("query error", 1).
 		Build()
 
@@ -791,17 +791,17 @@ func TestFindAffectedTests_FailOnError_False(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Same-package query fails
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo:*)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
 		WillFail("query error", 1).
 		Build()
 
 	// Sub-package query succeeds
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "kind('.*_test rule', //pkg/foo/...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
 		WillSucceed("", 0).
 		Build()
 
 	// External test deps query succeeds
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillSucceed("//other:test", 0).
 		Build()
 
@@ -822,10 +822,10 @@ func TestQuery_LockContention(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Bazel returns exit code 45 when another command is running
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "//...").
 		WillReturn(&executor.ExecutionResult{
 			Command:   "bazel",
-			Args:      []string{"query", "--noblock_for_lock", "//..."},
+			Args:      []string{"query", "//..."},
 			Output:    "",
 			Stderr:    "Another command is running",
 			ExitCode:  45,
@@ -853,10 +853,10 @@ func TestQuery_LockContentionByStderr(t *testing.T) {
 	q := NewBazelQuerierWithExecutor(mockExec)
 
 	// Also check detection by stderr message (in case exit code differs)
-	mockExec.ExpectCommandWithArgs("bazel", "query", "--noblock_for_lock", "//...").
+	mockExec.ExpectCommandWithArgs("bazel", "query", "//...").
 		WillReturn(&executor.ExecutionResult{
 			Command:   "bazel",
-			Args:      []string{"query", "--noblock_for_lock", "//..."},
+			Args:      []string{"query", "//..."},
 			Output:    "",
 			Stderr:    "Another command is running. Waiting for it to complete...",
 			ExitCode:  1,
