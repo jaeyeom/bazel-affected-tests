@@ -205,9 +205,10 @@ func TestFindAffectedTests_EmptyQueryResults(t *testing.T) {
 	}
 }
 
-func TestFindAffectedTests_QueryErrorHandling(t *testing.T) {
+func TestFindAffectedTests_QueryErrorHandling_BestEffort(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)
+	q.SetFailOnError(false) // best-effort mode
 
 	// First query succeeds
 	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
@@ -219,14 +220,14 @@ func TestFindAffectedTests_QueryErrorHandling(t *testing.T) {
 		WillSucceed("//pkg/foo:test", 0).
 		Build()
 
-	// External rdeps query fails but is ignored (error handling in code)
+	// External rdeps query fails but is ignored in best-effort mode
 	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
 		WillFail("query error", 1).
 		Build()
 
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 	if err != nil {
-		t.Fatalf("FindAffectedTests should not fail on query errors: %v", err)
+		t.Fatalf("FindAffectedTests should not fail in best-effort mode: %v", err)
 	}
 
 	// Should still get results from the successful query
@@ -349,9 +350,10 @@ func TestFindAffectedTests_SubPackageTests(t *testing.T) {
 	}
 }
 
-func TestFindAffectedTests_SubPackageTests_RdepsFails(t *testing.T) {
+func TestFindAffectedTests_SubPackageTests_RdepsFails_BestEffort(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)
+	q.SetFailOnError(false) // best-effort mode
 
 	// Same-package tests
 	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
@@ -370,7 +372,7 @@ func TestFindAffectedTests_SubPackageTests_RdepsFails(t *testing.T) {
 
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 	if err != nil {
-		t.Fatalf("FindAffectedTests should not fail: %v", err)
+		t.Fatalf("FindAffectedTests should not fail in best-effort mode: %v", err)
 	}
 
 	// Should still find the sub-package test even though rdeps failed
@@ -599,7 +601,7 @@ func TestQuery_Timeout(t *testing.T) {
 	}
 }
 
-func TestNewBazelQuerier_FailOnErrorEnvVar(t *testing.T) {
+func TestNewBazelQuerier_BestEffortEnvVar(t *testing.T) {
 	tests := []struct {
 		name         string
 		envValue     string
@@ -607,58 +609,58 @@ func TestNewBazelQuerier_FailOnErrorEnvVar(t *testing.T) {
 		expectFail   bool
 	}{
 		{
-			name:         "env not set",
+			name:         "env not set - default is fail on error",
 			shouldSetEnv: false,
-			expectFail:   false,
+			expectFail:   true,
 		},
 		{
-			name:         "env set to true",
+			name:         "env set to true - best effort disables fail on error",
 			envValue:     "true",
 			shouldSetEnv: true,
-			expectFail:   true,
+			expectFail:   false,
 		},
 		{
-			name:         "env set to 1",
+			name:         "env set to 1 - best effort disables fail on error",
 			envValue:     "1",
 			shouldSetEnv: true,
+			expectFail:   false,
+		},
+		{
+			name:         "env set to false - fail on error remains",
+			envValue:     "false",
+			shouldSetEnv: true,
 			expectFail:   true,
 		},
 		{
-			name:         "env set to false",
-			envValue:     "false",
-			shouldSetEnv: true,
-			expectFail:   false,
-		},
-		{
-			name:         "env set to 0",
+			name:         "env set to 0 - fail on error remains",
 			envValue:     "0",
 			shouldSetEnv: true,
-			expectFail:   false,
+			expectFail:   true,
 		},
 		{
-			name:         "env set to random value",
+			name:         "env set to random value - fail on error remains",
 			envValue:     "random",
 			shouldSetEnv: true,
-			expectFail:   false,
+			expectFail:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Save and restore env var
-			oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+			oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 			defer func() {
 				if hadEnv {
-					os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+					os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", oldValue)
 				} else {
-					os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+					os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 				}
 			}()
 
 			if tt.shouldSetEnv {
-				os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", tt.envValue)
+				os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", tt.envValue)
 			} else {
-				os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+				os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 			}
 
 			q := NewBazelQuerier()
@@ -669,39 +671,39 @@ func TestNewBazelQuerier_FailOnErrorEnvVar(t *testing.T) {
 	}
 }
 
-func TestNewBazelQuerierWithExecutor_FailOnErrorEnvVar(t *testing.T) {
+func TestNewBazelQuerierWithExecutor_BestEffortEnvVar(t *testing.T) {
 	// Save and restore env var
-	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 	defer func() {
 		if hadEnv {
-			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+			os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", oldValue)
 		} else {
-			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 		}
 	}()
 
-	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
+	os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", "true")
 
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)
 
-	if !q.failOnError {
-		t.Error("Expected failOnError=true when env var is set to 'true'")
+	if q.failOnError {
+		t.Error("Expected failOnError=false when BAZEL_AFFECTED_TESTS_BEST_EFFORT is set to 'true'")
 	}
 }
 
-func TestFindAffectedTests_FailOnError_True(t *testing.T) {
-	// Save and restore env var
-	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+func TestFindAffectedTests_FailOnError_Default(t *testing.T) {
+	// Default (no BEST_EFFORT env) should fail on query errors
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 	defer func() {
 		if hadEnv {
-			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+			os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", oldValue)
 		} else {
-			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 		}
 	}()
 
-	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
+	os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)
@@ -713,7 +715,7 @@ func TestFindAffectedTests_FailOnError_True(t *testing.T) {
 
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 
-	// Should return error when failOnError is true
+	// Should return error when failOnError is true (default)
 	if err == nil {
 		t.Fatal("Expected error when failOnError=true and query fails")
 	}
@@ -728,17 +730,17 @@ func TestFindAffectedTests_FailOnError_True(t *testing.T) {
 }
 
 func TestFindAffectedTests_FailOnError_ExternalTestDeps(t *testing.T) {
-	// Save and restore env var
-	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+	// Default should also fail on external test deps query errors
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 	defer func() {
 		if hadEnv {
-			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+			os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", oldValue)
 		} else {
-			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 		}
 	}()
 
-	os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", "true")
+	os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)
@@ -760,7 +762,7 @@ func TestFindAffectedTests_FailOnError_ExternalTestDeps(t *testing.T) {
 
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
 
-	// Should return error when failOnError is true
+	// Should return error when failOnError is true (default)
 	if err == nil {
 		t.Fatal("Expected error when failOnError=true and external test deps query fails")
 	}
@@ -774,18 +776,18 @@ func TestFindAffectedTests_FailOnError_ExternalTestDeps(t *testing.T) {
 	}
 }
 
-func TestFindAffectedTests_FailOnError_False(t *testing.T) {
-	// Save and restore env var
-	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+func TestFindAffectedTests_BestEffort(t *testing.T) {
+	// With BEST_EFFORT=true, query errors should be logged but not returned
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 	defer func() {
 		if hadEnv {
-			os.Setenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR", oldValue)
+			os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", oldValue)
 		} else {
-			os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR")
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
 		}
 	}()
 
-	os.Unsetenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") // Default is false
+	os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", "true")
 
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)
@@ -806,9 +808,9 @@ func TestFindAffectedTests_FailOnError_False(t *testing.T) {
 		Build()
 
 	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
-	// Should NOT return error when failOnError is false
+	// Should NOT return error in best-effort mode
 	if err != nil {
-		t.Fatalf("Expected no error when failOnError=false, got: %v", err)
+		t.Fatalf("Expected no error in best-effort mode, got: %v", err)
 	}
 
 	// Should still get results from the successful query

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
 
 	"github.com/jaeyeom/bazel-affected-tests/internal/cache"
+	"github.com/jaeyeom/bazel-affected-tests/internal/config"
 	"github.com/jaeyeom/bazel-affected-tests/internal/query"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
@@ -125,7 +129,10 @@ func TestGetPackageTests_UsesCacheWhenAvailable(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
 	q := query.NewBazelQuerierWithExecutor(mockExec)
 
-	got := getPackageTests(pkg, q, c, cacheKey, false)
+	got, err := getPackageTests(pkg, q, c, cacheKey, false)
+	if err != nil {
+		t.Fatalf("getPackageTests() error: %v", err)
+	}
 	if !reflect.DeepEqual(got, cached) {
 		t.Fatalf("getPackageTests() = %v, want %v", got, cached)
 	}
@@ -161,7 +168,11 @@ func TestGetPackageTests_CacheMissQueriesAndStores(t *testing.T) {
 		Build()
 	q := query.NewBazelQuerierWithExecutor(mockExec)
 
-	got := sorted(getPackageTests(pkg, q, c, cacheKey, false))
+	gotRaw, err := getPackageTests(pkg, q, c, cacheKey, false)
+	if err != nil {
+		t.Fatalf("getPackageTests() error: %v", err)
+	}
+	got := sorted(gotRaw)
 	want := sorted([]string{"//pkg/foo:unit_test", "//dep:dep_test"})
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("getPackageTests() = %v, want %v", got, want)
@@ -203,7 +214,10 @@ func TestGetPackageTests_NoCacheFlagBypassesReadAndWrite(t *testing.T) {
 		Build()
 	q := query.NewBazelQuerierWithExecutor(mockExec)
 
-	got := getPackageTests(pkg, q, c, cacheKey, true)
+	got, err := getPackageTests(pkg, q, c, cacheKey, true)
+	if err != nil {
+		t.Fatalf("getPackageTests() error: %v", err)
+	}
 	want := []string{"//pkg/foo:new_test"}
 	if !reflect.DeepEqual(sorted(got), sorted(want)) {
 		t.Fatalf("getPackageTests() = %v, want %v", got, want)
@@ -241,7 +255,10 @@ func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 		Build()
 	q := query.NewBazelQuerierWithExecutor(mockExec)
 
-	got := getPackageTests(pkg, q, c, "", false)
+	got, err := getPackageTests(pkg, q, c, "", false)
+	if err != nil {
+		t.Fatalf("getPackageTests() error: %v", err)
+	}
 	want := []string{"//pkg/foo:new_test"}
 	if !reflect.DeepEqual(sorted(got), sorted(want)) {
 		t.Fatalf("getPackageTests() = %v, want %v", got, want)
@@ -270,9 +287,228 @@ func TestCollectAllTests_DeduplicatesAcrossPackages(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
 	q := query.NewBazelQuerierWithExecutor(mockExec)
 
-	got := sorted(collectAllTests([]string{"//pkg/foo", "//pkg/bar"}, q, c, cacheKey, false))
+	gotRaw, err := collectAllTests([]string{"//pkg/foo", "//pkg/bar"}, q, c, cacheKey, false)
+	if err != nil {
+		t.Fatalf("collectAllTests() error: %v", err)
+	}
+	got := sorted(gotRaw)
 	want := sorted([]string{"//pkg/foo:t1", "//pkg/bar:t2", "//shared:t"})
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("collectAllTests() = %v, want %v", got, want)
+	}
+}
+
+func TestReadFilesFrom_File(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "files.txt")
+	content := "foo/bar.go\nbaz/qux.go\n\nignore_empty\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := readFilesFrom(path)
+	if err != nil {
+		t.Fatalf("readFilesFrom() error: %v", err)
+	}
+	want := []string{"foo/bar.go", "baz/qux.go", "ignore_empty"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("readFilesFrom() = %v, want %v", got, want)
+	}
+}
+
+func TestReadFilesFrom_MissingFile(t *testing.T) {
+	_, err := readFilesFrom("/nonexistent/path/to/file.txt")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestReadFilesFrom_EmptyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "empty.txt")
+	if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := readFilesFrom(path)
+	if err != nil {
+		t.Fatalf("readFilesFrom() error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty result, got %v", got)
+	}
+}
+
+func TestFindPackages(t *testing.T) {
+	// Create a temp repo root with BUILD files
+	tmpDir := t.TempDir()
+	pkgDir := filepath.Join(tmpDir, "pkg", "foo")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "BUILD"), []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := findPackages(tmpDir, []string{"pkg/foo/bar.go", "no/build/file.go"})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 package, got %d: %v", len(got), got)
+	}
+	if got[0] != "//pkg/foo" {
+		t.Errorf("expected //pkg/foo, got %s", got[0])
+	}
+}
+
+func TestFindPackages_NoBuildFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	got := findPackages(tmpDir, []string{"some/file.go"})
+	if len(got) != 0 {
+		t.Errorf("expected no packages, got %v", got)
+	}
+}
+
+func TestGetCacheKey_NoCacheReturnsEmpty(t *testing.T) {
+	c := cache.NewCache(t.TempDir())
+	key := getCacheKey(c, true, "/some/repo")
+	if key != "" {
+		t.Errorf("expected empty key with noCache=true, got %q", key)
+	}
+}
+
+func TestHandleCacheClear(t *testing.T) {
+	tmpDir := t.TempDir()
+	c := cache.NewCache(tmpDir)
+
+	// Write something to cache first
+	if err := c.Set("key1", "//pkg", []string{"//pkg:test"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := handleCacheClear(c); err != nil {
+		t.Fatalf("handleCacheClear() error: %v", err)
+	}
+
+	// Verify cache is cleared
+	if _, found := c.Get("key1", "//pkg"); found {
+		t.Error("expected cache to be cleared")
+	}
+}
+
+func TestNewQuerier_NilConfig(t *testing.T) {
+	q := newQuerier(nil)
+	if q == nil {
+		t.Fatal("newQuerier(nil) returned nil")
+	}
+}
+
+func TestNewQuerier_WithConfig(t *testing.T) {
+	falseVal := false
+	cfg := &config.Config{
+		EnableSubpackageQuery: &falseVal,
+	}
+	q := newQuerier(cfg)
+	if q == nil {
+		t.Fatal("newQuerier returned nil")
+	}
+}
+
+func TestOutputOrRun_PrintsTargets(t *testing.T) {
+	// Capture stdout
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	outputOrRun(false, []string{"//a:test", "//b:test"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("ReadFrom() error: %v", err)
+	}
+	output := buf.String()
+
+	if output != "//a:test\n//b:test\n" {
+		t.Errorf("unexpected output: %q", output)
+	}
+}
+
+func TestOutputOrRun_EmptyTargets(t *testing.T) {
+	// Should not panic or error on empty targets
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	outputOrRun(false, nil)
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(r); err != nil {
+		t.Fatalf("ReadFrom() error: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("expected no output for empty targets, got %q", buf.String())
+	}
+}
+
+func TestGetChangedFiles_FilesFrom(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "files.txt")
+	if err := os.WriteFile(path, []byte("a.go\nb.go\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := cliConfig{filesFrom: path}
+	got, err := getChangedFiles(cfg, false)
+	if err != nil {
+		t.Fatalf("getChangedFiles() error: %v", err)
+	}
+	want := []string{"a.go", "b.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("getChangedFiles() = %v, want %v", got, want)
+	}
+}
+
+func TestGetChangedFiles_FilesFromMissing(t *testing.T) {
+	cfg := cliConfig{filesFrom: "/nonexistent/file.txt"}
+	_, err := getChangedFiles(cfg, false)
+	if err == nil {
+		t.Fatal("expected error for missing files-from file")
+	}
+}
+
+func TestCollectAllTests_ErrorPropagation(t *testing.T) {
+	tmpDir := t.TempDir()
+	c := cache.NewCache(tmpDir)
+
+	// Create a querier that will fail (default is fail-on-error)
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
+		WillFail("query error", 1).
+		Build()
+	q := query.NewBazelQuerierWithExecutor(mockExec)
+
+	_, err := collectAllTests([]string{"//pkg/foo"}, q, c, "", false)
+	if err == nil {
+		t.Fatal("expected error from collectAllTests when query fails")
+	}
+}
+
+func TestGetPackageTests_QueryError(t *testing.T) {
+	tmpDir := t.TempDir()
+	c := cache.NewCache(tmpDir)
+
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
+		WillFail("query error", 1).
+		Build()
+	q := query.NewBazelQuerierWithExecutor(mockExec)
+
+	_, err := getPackageTests("//pkg/foo", q, c, "", false)
+	if err == nil {
+		t.Fatal("expected error from getPackageTests when query fails")
 	}
 }

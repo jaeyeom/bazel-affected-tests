@@ -23,12 +23,6 @@ func main() {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 	}
 
-	repoRoot, err := git.RepoRoot(context.Background(), executor.NewBasicExecutor())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: not a git repository (or any parent): %v\n", err)
-		os.Exit(1)
-	}
-
 	c := cache.NewCache(cfg.cacheDir)
 
 	if cfg.clearCache {
@@ -44,6 +38,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	targets, err := resolveTargets(cfg, c)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	outputOrRun(cfg.run, targets)
+}
+
+// resolveTargets detects changed files, finds affected Bazel packages, queries
+// for affected test targets, and applies config-based filtering and additions.
+func resolveTargets(cfg cliConfig, c *cache.Cache) ([]string, error) {
+	repoRoot, err := git.RepoRoot(context.Background(), executor.NewBasicExecutor())
+	if err != nil {
+		return nil, fmt.Errorf("not a git repository (or any parent): %w", err)
+	}
+
 	piped := isPipe()
 	if countSourceFlags(cfg) > 0 && piped {
 		fmt.Fprintln(os.Stderr, "Warning: stdin is a pipe but an explicit flag is set; ignoring pipe input")
@@ -51,38 +62,43 @@ func main() {
 
 	changedFiles, err := getChangedFiles(cfg, piped)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 
 	if len(changedFiles) == 0 {
-		os.Exit(0)
+		return nil, nil
 	}
 
 	// Load config early so ignore_paths can filter files before package resolution
 	repoCfg, err := config.LoadConfig(repoRoot)
 	if err != nil {
-		slog.Warn("Failed to load config", "error", err)
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	if repoCfg != nil {
 		changedFiles = repoCfg.FilterIgnoredFiles(changedFiles)
 		slog.Debug("Files after ignore_paths filtering", "count", len(changedFiles))
 		if len(changedFiles) == 0 {
-			os.Exit(0)
+			return nil, nil
 		}
 	}
 
 	packages := findPackages(repoRoot, changedFiles)
 	if len(packages) == 0 {
 		slog.Debug("No Bazel packages found for staged files")
-		os.Exit(0)
+		return nil, nil
 	}
 
 	cacheKey := getCacheKey(c, cfg.noCache, repoRoot)
 
 	querier := newQuerier(repoCfg)
-	allTests := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
+	if cfg.bestEffort {
+		querier.SetFailOnError(false)
+	}
+	allTests, err := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
+	if err != nil {
+		return nil, err
+	}
 
 	var configTargets []string
 	if repoCfg != nil {
@@ -91,9 +107,7 @@ func main() {
 		slog.Debug("Config targets matched", "count", len(configTargets))
 	}
 
-	// Merge and deduplicate
-	allTargets := mergeTargets(allTests, configTargets)
-	outputOrRun(cfg.run, allTargets)
+	return mergeTargets(allTests, configTargets), nil
 }
 
 // outputOrRun either prints the targets to stdout or runs bazel test with them.
@@ -127,6 +141,7 @@ type cliConfig struct {
 	head       bool
 	base       string
 	run        bool
+	bestEffort bool
 }
 
 func parseFlags() cliConfig {
@@ -140,6 +155,7 @@ func parseFlags() cliConfig {
 	flag.BoolVar(&cfg.head, "head", false, "Use staged + unstaged files (git diff HEAD)")
 	flag.StringVar(&cfg.base, "base", "", "Use all changes vs a ref (git diff <ref>)")
 	flag.BoolVar(&cfg.run, "run", false, "Run bazel test with affected targets instead of printing them")
+	flag.BoolVar(&cfg.bestEffort, "best-effort", false, "Log warnings instead of failing on Bazel query errors")
 	flag.Parse()
 
 	// Set debug from environment if not set via flag
@@ -287,12 +303,15 @@ func findPackages(repoRoot string, changedFiles []string) []string {
 	return packages
 }
 
-func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool) []string {
+func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool) ([]string, error) {
 	allTestsMap := make(map[string]bool)
 
 	// Process packages
 	for _, pkg := range packages {
-		tests := getPackageTests(pkg, querier, c, cacheKey, noCache)
+		tests, err := getPackageTests(pkg, querier, c, cacheKey, noCache)
+		if err != nil {
+			return nil, err
+		}
 		for _, test := range tests {
 			allTestsMap[test] = true
 		}
@@ -302,20 +321,19 @@ func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Ca
 	for test := range allTestsMap {
 		allTests = append(allTests, test)
 	}
-	return allTests
+	return allTests, nil
 }
 
-func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool) []string {
+func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool) ([]string, error) {
 	if !noCache && cacheKey != "" {
 		if cachedTests, found := c.Get(cacheKey, pkg); found {
-			return cachedTests
+			return cachedTests, nil
 		}
 	}
 
 	tests, err := querier.FindAffectedTests([]string{pkg})
 	if err != nil {
-		slog.Debug("Error querying tests for package", "package", pkg, "error", err)
-		return nil
+		return nil, fmt.Errorf("querying tests for package %s: %w", pkg, err)
 	}
 
 	// Store in cache
@@ -325,7 +343,7 @@ func getPackageTests(pkg string, querier *query.BazelQuerier, c *cache.Cache, ca
 		}
 	}
 
-	return tests
+	return tests, nil
 }
 
 // mergeTargets deduplicates and sorts the given test and config targets.

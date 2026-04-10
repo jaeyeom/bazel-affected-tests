@@ -24,11 +24,14 @@ type BazelQuerier struct {
 }
 
 // NewBazelQuerier creates a new BazelQuerier.
+// By default, query failures are fatal (failOnError=true). Set the
+// BAZEL_AFFECTED_TESTS_BEST_EFFORT environment variable to "true" or "1"
+// to log warnings instead of returning errors.
 func NewBazelQuerier() *BazelQuerier {
-	failOnError := os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "true" || os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "1"
+	bestEffort := os.Getenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT") == "true" || os.Getenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT") == "1"
 	return &BazelQuerier{
 		executor:              executor.NewBasicExecutor(),
-		failOnError:           failOnError,
+		failOnError:           !bestEffort,
 		enableSubpackageQuery: true,
 	}
 }
@@ -36,12 +39,18 @@ func NewBazelQuerier() *BazelQuerier {
 // NewBazelQuerierWithExecutor creates a new BazelQuerier with a custom executor.
 // This is primarily useful for testing.
 func NewBazelQuerierWithExecutor(exec executor.Executor) *BazelQuerier {
-	failOnError := os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "true" || os.Getenv("BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR") == "1"
+	bestEffort := os.Getenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT") == "true" || os.Getenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT") == "1"
 	return &BazelQuerier{
 		executor:              exec,
-		failOnError:           failOnError,
+		failOnError:           !bestEffort,
 		enableSubpackageQuery: true,
 	}
+}
+
+// SetFailOnError controls whether Bazel query failures return errors (true)
+// or are logged as warnings (false).
+func (q *BazelQuerier) SetFailOnError(fail bool) {
+	q.failOnError = fail
 }
 
 // SetEnableSubpackageQuery controls whether sub-package test queries (PKG/...)

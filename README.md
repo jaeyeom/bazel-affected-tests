@@ -48,6 +48,7 @@ bazel-affected-tests | xargs bazel test
 - `--no-cache`: Disable caching for this run
 - `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
 - `--run`: Run `bazel test` with the affected targets instead of printing them
+- `--best-effort`: Log warnings instead of failing on Bazel query errors (also via env `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`)
 
 ### Examples
 
@@ -113,6 +114,12 @@ Make sure to run `go install` first to ensure the binary is in your PATH.
 5. **Output**: Prints affected test targets, one per line
 
 **Granularity**: This tool operates at **package-level granularity**, not file-level. A Bazel package is a directory containing a BUILD file. When any file in a package is modified, all tests that depend on that package are considered affected.
+
+## Error Handling
+
+By default, Bazel query failures and config parse errors are **fatal** — the tool exits with a nonzero status so CI pipelines and pre-commit hooks detect the problem. This prevents silently missing affected tests.
+
+If you prefer a lenient mode (e.g., for local development where Bazel may not be fully available), use `--best-effort` or set `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`. In this mode, query failures are logged as warnings and the tool continues with partial results.
 
 ## Performance
 
