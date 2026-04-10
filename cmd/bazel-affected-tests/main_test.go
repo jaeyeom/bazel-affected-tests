@@ -273,6 +273,18 @@ func TestGetPackageTests_EmptyKeyBypassesReadAndWrite(t *testing.T) {
 	}
 }
 
+func TestMergeTargets_ConfigOnlyNoPackages(t *testing.T) {
+	// Simulates the config-only path: no Bazel packages found, but config
+	// rules match changed files. Previously this returned nil because
+	// resolveTargets returned early on len(packages) == 0.
+	configTargets := []string{"//tools/format:format_test_Proto"}
+	got := mergeTargets(nil, configTargets)
+	want := []string{"//tools/format:format_test_Proto"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("mergeTargets(nil, config) = %v, want %v", got, want)
+	}
+}
+
 func TestCollectAllTests_DeduplicatesAcrossPackages(t *testing.T) {
 	tmpDir := t.TempDir()
 	c := cache.NewCache(tmpDir)

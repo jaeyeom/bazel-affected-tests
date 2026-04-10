@@ -46,6 +46,9 @@ bazel-affected-tests | xargs bazel test
 - `--cache-dir`: Custom cache directory (default: `$HOME/.cache/bazel-affected-tests`)
 - `--clear-cache`: Clear the cache and exit
 - `--no-cache`: Disable caching for this run
+- `--staged`: Use staged files only (`git diff --cached`)
+- `--head`: Use staged + unstaged files (`git diff HEAD`)
+- `--base <ref>`: Use all changes vs a ref (`git diff <ref>`)
 - `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
 - `--run`: Run `bazel test` with the affected targets instead of printing them
 - `--best-effort`: Log warnings instead of failing on Bazel query errors (also via env `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`)

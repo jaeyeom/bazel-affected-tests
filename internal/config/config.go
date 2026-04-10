@@ -59,6 +59,10 @@ func LoadConfig(configDir string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	if config.Version != 0 && config.Version != 1 {
+		return nil, fmt.Errorf("unsupported config version %d (supported: 1)", config.Version)
+	}
+
 	return &config, nil
 }
 

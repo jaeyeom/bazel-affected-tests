@@ -154,6 +154,33 @@ func TestConfig_MatchTargets(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_UnsupportedVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{"version 0 (unset) accepted", "rules: []\n", false},
+		{"version 1 accepted", "version: 1\n", false},
+		{"version 2 rejected", "version: 2\n", true},
+		{"version 999 rejected", "version: 999\n", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := LoadConfig(tmpDir)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("LoadConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestLoadConfig_InvalidPath(t *testing.T) {
 	tmpDir := t.TempDir()
 

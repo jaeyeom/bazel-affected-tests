@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `--run` flag to execute affected tests directly via `bazel test`
+- `--staged`, `--head`, `--base` flags with auto-detect mode for flexible input
+- Configurable sub-package test query (`enable_subpackage_query`)
+- `--keep_going`, `--nohost_deps`, `--noimplicit_deps` flags on rdeps query
+
+### Fixed
+
+- Config-only targets are now returned even when changed files have no Bazel package
+- Config version field is now validated (rejects unsupported versions)
+- Bazel query and config errors are fatal by default (use `--best-effort` for lenient mode)
+- Removed `--noblock_for_lock` flag dropped in Bazel 8.x
+- Repo root is now resolved via `git rev-parse` instead of working directory
+
+## [v0.3.1] - 2026-04-01
+
+### Fixed
+
+- Skip sub-package query for root package to avoid matching all tests
+- Fix pre-commit hook example to actually run affected tests
+
+## [v0.3.0] - 2026-03-31
+
+### Added
+
+- Sub-package test discovery (`kind('.*_test rule', PKG/...)`)
+- Piped stdin support for file input
+- `--files-from` flag replacing implicit stdin detection
+- `ignore_paths` config field to skip non-Bazel files before package resolution
+
+### Changed
+
+- Updated golangci-lint-action to v7 for v2 config compatibility
+
 ## [v0.2.1] - 2026-02-25
 
 ### Added
@@ -39,6 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--debug`, `--cache-dir`, `--clear-cache`, and `--no-cache` CLI flags
 - `BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR` environment variable
 
+[Unreleased]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.3.1...HEAD
+[v0.3.1]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.3.0...v0.3.1
+[v0.3.0]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.2.1...v0.3.0
 [v0.2.1]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.2.0...v0.2.1
 [v0.2.0]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/jaeyeom/bazel-affected-tests/releases/tag/v0.1.0

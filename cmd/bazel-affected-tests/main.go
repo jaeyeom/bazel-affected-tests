@@ -84,20 +84,20 @@ func resolveTargets(cfg cliConfig, c *cache.Cache) ([]string, error) {
 	}
 
 	packages := findPackages(repoRoot, changedFiles)
-	if len(packages) == 0 {
-		slog.Debug("No Bazel packages found for staged files")
-		return nil, nil
-	}
+	slog.Debug("Bazel packages found", "count", len(packages))
 
-	cacheKey := getCacheKey(c, cfg.noCache, repoRoot)
+	var allTests []string
+	if len(packages) > 0 {
+		cacheKey := getCacheKey(c, cfg.noCache, repoRoot)
 
-	querier := newQuerier(repoCfg)
-	if cfg.bestEffort {
-		querier.SetFailOnError(false)
-	}
-	allTests, err := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
-	if err != nil {
-		return nil, err
+		querier := newQuerier(repoCfg)
+		if cfg.bestEffort {
+			querier.SetFailOnError(false)
+		}
+		allTests, err = collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var configTargets []string
