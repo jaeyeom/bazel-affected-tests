@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configurable sub-package test query (`enable_subpackage_query`)
 - `--keep_going`, `--nohost_deps`, `--noimplicit_deps` flags on rdeps query
 
+### Changed
+
+- Renamed `BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR` environment variable to `BAZEL_AFFECTED_TESTS_BEST_EFFORT` (inverted sense: set to `true` for lenient mode)
+
 ### Fixed
 
 - Config-only targets are now returned even when changed files have no Bazel package

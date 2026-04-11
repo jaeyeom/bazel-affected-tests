@@ -15,7 +15,10 @@ permissions:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,9 +28,26 @@ jobs:
 
       - uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.11
           args: --timeout=5m
 
       - run: make check
 
       - run: make build
+
+  integration:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: bazelbuild/setup-bazelisk@v3
+
+      - name: Run integration tests with real Bazel
+        run: go test -v -run TestCLI_RealBazel -timeout 10m ./cmd/bazel-affected-tests/

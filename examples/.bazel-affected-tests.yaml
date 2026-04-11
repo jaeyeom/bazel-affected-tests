@@ -11,7 +11,7 @@ version: 1
 ignore_paths:
   - ".semgrep/**"
   - "docs/**"
-  - "*.md"
+  - "**/*.md"
 
 # Exclude targets discovered via bazel query.
 # Uses path.Match syntax on Bazel target labels.
