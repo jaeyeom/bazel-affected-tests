@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-04-12
+
 ### Added
 
 - `--run` flag to execute affected tests directly via `bazel test`
@@ -17,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Renamed `BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR` environment variable to `BAZEL_AFFECTED_TESTS_BEST_EFFORT` (inverted sense: set to `true` for lenient mode)
+- Bumped `go-cmdexec` dependency to v0.3.0 (includes LICENSE file for distribution)
 
 ### Fixed
 
@@ -80,7 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--debug`, `--cache-dir`, `--clear-cache`, and `--no-cache` CLI flags
 - `BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR` environment variable
 
-[Unreleased]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.3.1...v0.4.0
 [v0.3.1]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.3.0...v0.3.1
 [v0.3.0]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.2.1...v0.3.0
 [v0.2.1]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.2.0...v0.2.1
