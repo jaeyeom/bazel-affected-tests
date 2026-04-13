@@ -29,15 +29,14 @@ go install github.com/jaeyeom/bazel-affected-tests/cmd/bazel-affected-tests@late
 ### Basic Usage
 
 ```bash
-# Run the tool (outputs affected test targets)
-bazel-affected-tests
-
-# Run affected tests directly
+# Run affected tests directly (recommended)
 bazel-affected-tests --run
 
-# Or pipe to xargs to run the tests (cross-platform note: GNU xargs
-# needs -r / --no-run-if-empty to avoid running bazel with no targets)
-bazel-affected-tests | xargs bazel test
+# Or just list affected test targets
+bazel-affected-tests
+
+# Pipe to xargs (add -r on GNU/Linux to skip empty input)
+bazel-affected-tests | xargs -r bazel test
 ```
 
 ### Command Line Options
