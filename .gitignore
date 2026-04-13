@@ -19,3 +19,6 @@ Thumbs.db
 # Tooling state
 .claude/
 .omc/
+
+# Githooks local state
+.githooks/
