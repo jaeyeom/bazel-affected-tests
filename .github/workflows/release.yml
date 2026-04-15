@@ -21,6 +21,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11
+          args: --timeout=5m
+
       - name: Validate
         run: make check && make build
 
