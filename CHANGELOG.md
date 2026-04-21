@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Bazel internal crashes (e.g., JVM-level exceptions during external repository
+  fetch) now degrade gracefully: the crashing query is logged as a warning,
+  partial results are returned, and the process exits 0 instead of forcing
+  callers into a full test fallback
+
 ## [v0.4.0] - 2026-04-12
 
 ### Added

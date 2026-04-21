@@ -850,6 +850,116 @@ func TestQuery_LockContention(t *testing.T) {
 	}
 }
 
+func TestQuery_BazelCrashIsNonFatal(t *testing.T) {
+	// A Bazel internal crash (e.g., JVM exception during repo fetch) must be
+	// treated as non-fatal regardless of failOnError, so the tool does not
+	// force callers into a full test fallback.
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+	defer func() {
+		if hadEnv {
+			os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", oldValue)
+		} else {
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+		}
+	}()
+	os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+	// Default fail-on-error mode — crash must still be treated as non-fatal.
+
+	crashStderr := "FATAL: bazel crashed due to an internal error. Printing stack trace:\n" +
+		"java.lang.RuntimeException: Unrecoverable error while evaluating node\n" +
+		"Caused by: java.lang.IllegalArgumentException: invalid start or end\n"
+
+	// Same-package query crashes.
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
+		WillReturn(&executor.ExecutionResult{
+			Command:   "bazel",
+			Args:      []string{"query", "kind('.*_test rule', //pkg/foo:*)"},
+			Output:    "",
+			Stderr:    crashStderr,
+			ExitCode:  37,
+			StartTime: time.Now(),
+			EndTime:   time.Now(),
+		}, nil).
+		Build()
+
+	// Sub-package query succeeds with a partial result.
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo/...)").
+		WillSucceed("//pkg/foo:partial_test", 0).
+		Build()
+
+	// External rdeps query succeeds.
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--keep_going", "--nohost_deps", "--noimplicit_deps", "rdeps(//..., //pkg/foo:*) intersect kind('.*_test rule', //...)").
+		WillSucceed("", 0).
+		Build()
+
+	tests, err := q.FindAffectedTests([]string{"//pkg/foo"})
+	if err != nil {
+		t.Fatalf("FindAffectedTests should not fail on bazel crash: %v", err)
+	}
+
+	if len(tests) != 1 || tests[0] != "//pkg/foo:partial_test" {
+		t.Errorf("expected partial results [//pkg/foo:partial_test], got %v", tests)
+	}
+}
+
+func TestQuery_RegularErrorStillFatalByDefault(t *testing.T) {
+	// Non-crash query errors (e.g., invalid syntax) must remain fatal when
+	// failOnError is true — only crashes are auto-degraded.
+	oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+	defer func() {
+		if hadEnv {
+			os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", oldValue)
+		} else {
+			os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+		}
+	}()
+	os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+
+	mockExec.ExpectCommandWithArgs("bazel", "query", "kind('.*_test rule', //pkg/foo:*)").
+		WillReturn(&executor.ExecutionResult{
+			Command:   "bazel",
+			Args:      []string{"query", "kind('.*_test rule', //pkg/foo:*)"},
+			Output:    "",
+			Stderr:    "ERROR: Invalid target pattern",
+			ExitCode:  2,
+			StartTime: time.Now(),
+			EndTime:   time.Now(),
+		}, nil).
+		Build()
+
+	_, err := q.FindAffectedTests([]string{"//pkg/foo"})
+	if err == nil {
+		t.Fatal("expected error for non-crash query failure in fail-on-error mode")
+	}
+}
+
+func TestIsBazelCrash(t *testing.T) {
+	cases := []struct {
+		name   string
+		stderr string
+		want   bool
+	}{
+		{"crash marker", "FATAL: bazel crashed due to an internal error.", true},
+		{"crash with stack", "some output\nFATAL: bazel crashed\n  at com.google.devtools...", true},
+		{"regular query error", "ERROR: no such package 'foo'", false},
+		{"empty stderr", "", false},
+		{"lock contention", "Another command is running", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isBazelCrash(tc.stderr); got != tc.want {
+				t.Errorf("isBazelCrash(%q) = %v, want %v", tc.stderr, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestQuery_LockContentionByStderr(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)

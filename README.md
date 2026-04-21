@@ -123,6 +123,8 @@ By default, Bazel query failures and config parse errors are **fatal** — the t
 
 If you prefer a lenient mode (e.g., for local development where Bazel may not be fully available), use `--best-effort` or set `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`. In this mode, query failures are logged as warnings and the tool continues with partial results.
 
+**Bazel internal crashes** (e.g., JVM-level exceptions inside the Bazel server while fetching an external repository) are always treated as non-fatal, even without `--best-effort`. A crash is a signal that Bazel itself is broken rather than that tests are failing — propagating it would force callers (e.g., pre-commit hooks) to fall back to running the full test set, which would just re-trigger the same crash. Instead, the crashing query is logged as a warning and whatever results were computable from other queries are returned.
+
 ## Performance
 
 - **First Run**: Similar to shell script (builds cache)

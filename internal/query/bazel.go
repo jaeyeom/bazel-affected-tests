@@ -3,6 +3,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,6 +16,32 @@ import (
 
 // validPkgPattern validates Bazel package labels.
 var validPkgPattern = regexp.MustCompile(`^//[a-zA-Z0-9_./-]*$`)
+
+// errBazelCrash marks a query failure caused by a Bazel internal crash (e.g.,
+// a JVM-level exception inside the Bazel server while fetching an external
+// repository). Crashes are treated as non-fatal regardless of failOnError so
+// a transient Bazel failure does not force callers to fall back to running
+// the full test set.
+var errBazelCrash = errors.New("bazel crashed")
+
+// isBazelCrash reports whether the given stderr output indicates a Bazel
+// internal crash as opposed to a regular query error (invalid syntax,
+// missing target, etc.).
+func isBazelCrash(stderr string) bool {
+	return strings.Contains(stderr, "FATAL: bazel crashed")
+}
+
+// firstLine returns the first non-empty line of s, trimmed of whitespace.
+// Bazel crash stack traces are long; a one-line summary keeps log output
+// readable while the full stderr stays visible at the source.
+func firstLine(s string) string {
+	for line := range strings.SplitSeq(s, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
 
 // BazelQuerier executes Bazel queries.
 type BazelQuerier struct {
@@ -60,11 +87,17 @@ func (q *BazelQuerier) SetEnableSubpackageQuery(enable bool) {
 }
 
 // collectTests runs a Bazel query and adds the results to testsSet.
-// Returns an error only when failOnError is true and the query fails.
+// Returns an error only when failOnError is true and the query fails with a
+// non-crash error. Bazel internal crashes are always logged and skipped so
+// callers do not escalate a transient Bazel failure into a full test fallback.
 // Extra args are forwarded to the underlying bazel query invocation.
 func (q *BazelQuerier) collectTests(queryStr, label, pkg string, testsSet map[string]bool, extraArgs ...string) error {
 	tests, err := q.query(queryStr, extraArgs...)
 	if err != nil {
+		if errors.Is(err, errBazelCrash) {
+			slog.Warn("Bazel crashed while querying "+label+", continuing with partial results", "package", pkg, "error", err)
+			return nil
+		}
 		if q.failOnError {
 			return fmt.Errorf("failed to query %s for %s: %w", label, pkg, err)
 		}
@@ -177,6 +210,9 @@ func (q *BazelQuerier) query(queryStr string, extraArgs ...string) ([]string, er
 	}
 
 	if result.ExitCode != 0 {
+		if isBazelCrash(result.Stderr) {
+			return nil, fmt.Errorf("bazel query crashed (exit code %d): %s: %w", result.ExitCode, firstLine(result.Stderr), errBazelCrash)
+		}
 		return nil, fmt.Errorf("bazel query failed with exit code %d: %s", result.ExitCode, result.Stderr)
 	}
 
