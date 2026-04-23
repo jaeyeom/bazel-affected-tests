@@ -352,66 +352,120 @@ func TestReadFilesFrom_EmptyFile(t *testing.T) {
 }
 
 func TestFindPackages(t *testing.T) {
-	// Create a temp repo root with BUILD files
-	tmpDir := t.TempDir()
-	pkgDir := filepath.Join(tmpDir, "pkg", "foo")
-	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "BUILD"), []byte(""), 0o600); err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name         string
+		buildFiles   []string
+		files        []string
+		maxDepth     int
+		wantPackages []string
+		wantUnmapped []string
+	}{
+		{
+			name:         "single file maps to its package",
+			buildFiles:   []string{"pkg/foo/BUILD"},
+			files:        []string{"pkg/foo/bar.go"},
+			maxDepth:     query.UnlimitedParentDepth,
+			wantPackages: []string{"//pkg/foo"},
+		},
+		{
+			name:         "some map, others unmapped",
+			buildFiles:   []string{"pkg/foo/BUILD"},
+			files:        []string{"pkg/foo/bar.go", "no/build/file.go"},
+			maxDepth:     query.UnlimitedParentDepth,
+			wantPackages: []string{"//pkg/foo"},
+			wantUnmapped: []string{"no/build/file.go"},
+		},
+		{
+			name:         "no BUILD files anywhere",
+			files:        []string{"some/file.go"},
+			maxDepth:     query.UnlimitedParentDepth,
+			wantUnmapped: []string{"some/file.go"},
+		},
+		{
+			name:       "empty file list",
+			buildFiles: []string{"pkg/foo/BUILD"},
+			maxDepth:   query.UnlimitedParentDepth,
+		},
+		{
+			name:         "BUILD.bazel is recognized",
+			buildFiles:   []string{"pkg/bar/BUILD.bazel"},
+			files:        []string{"pkg/bar/main.go"},
+			maxDepth:     query.UnlimitedParentDepth,
+			wantPackages: []string{"//pkg/bar"},
+		},
+		{
+			name:         "multiple files in same package dedupe",
+			buildFiles:   []string{"pkg/foo/BUILD"},
+			files:        []string{"pkg/foo/a.go", "pkg/foo/b.go", "pkg/foo/c.go"},
+			maxDepth:     query.UnlimitedParentDepth,
+			wantPackages: []string{"//pkg/foo"},
+		},
+		{
+			name:         "files from different packages",
+			buildFiles:   []string{"pkg/a/BUILD", "pkg/b/BUILD"},
+			files:        []string{"pkg/a/x.go", "pkg/b/y.go"},
+			maxDepth:     query.UnlimitedParentDepth,
+			wantPackages: []string{"//pkg/a", "//pkg/b"},
+		},
+		{
+			name:         "nearest BUILD wins over ancestor",
+			buildFiles:   []string{"pkg/BUILD", "pkg/foo/BUILD"},
+			files:        []string{"pkg/foo/bar.go"},
+			maxDepth:     query.UnlimitedParentDepth,
+			wantPackages: []string{"//pkg/foo"},
+		},
+		{
+			name:         "unmapped preserves input order",
+			files:        []string{"zzz/late.go", "aaa/early.go"},
+			maxDepth:     query.UnlimitedParentDepth,
+			wantUnmapped: []string{"zzz/late.go", "aaa/early.go"},
+		},
+		{
+			name:         "depth=0 only considers file's own directory",
+			buildFiles:   []string{"pkg/foo/BUILD"},
+			files:        []string{"pkg/foo/sub/file.go"},
+			maxDepth:     0,
+			wantUnmapped: []string{"pkg/foo/sub/file.go"},
+		},
+		{
+			name:         "depth=1 cannot reach 2 hops up",
+			buildFiles:   []string{"pkg/foo/BUILD"},
+			files:        []string{"pkg/foo/deep/nested/file.go"},
+			maxDepth:     1,
+			wantUnmapped: []string{"pkg/foo/deep/nested/file.go"},
+		},
+		{
+			name:         "depth=2 reaches 2 hops up",
+			buildFiles:   []string{"pkg/foo/BUILD"},
+			files:        []string{"pkg/foo/deep/nested/file.go"},
+			maxDepth:     2,
+			wantPackages: []string{"//pkg/foo"},
+		},
 	}
 
-	got, unmapped := findPackages(tmpDir, []string{"pkg/foo/bar.go", "no/build/file.go"}, query.UnlimitedParentDepth)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 package, got %d: %v", len(got), got)
-	}
-	if got[0] != "//pkg/foo" {
-		t.Errorf("expected //pkg/foo, got %s", got[0])
-	}
-	if len(unmapped) != 1 || unmapped[0] != "no/build/file.go" {
-		t.Errorf("expected unmapped [no/build/file.go], got %v", unmapped)
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			for _, bf := range tt.buildFiles {
+				path := filepath.Join(tmpDir, bf)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(""), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-func TestFindPackages_NoBuildFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-	got, unmapped := findPackages(tmpDir, []string{"some/file.go"}, query.UnlimitedParentDepth)
-	if len(got) != 0 {
-		t.Errorf("expected no packages, got %v", got)
-	}
-	if len(unmapped) != 1 || unmapped[0] != "some/file.go" {
-		t.Errorf("expected unmapped [some/file.go], got %v", unmapped)
-	}
-}
+			packages, unmapped := findPackages(tmpDir, tt.files, tt.maxDepth)
+			slices.Sort(packages)
 
-func TestFindPackages_RespectsMaxDepth(t *testing.T) {
-	tmpDir := t.TempDir()
-	pkgDir := filepath.Join(tmpDir, "pkg", "foo")
-	deepDir := filepath.Join(pkgDir, "deep", "nested")
-	if err := os.MkdirAll(deepDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "BUILD"), []byte(""), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// depth=1 cannot reach pkg/foo from pkg/foo/deep/nested (2 hops up)
-	packages, unmapped := findPackages(tmpDir, []string{"pkg/foo/deep/nested/file.go"}, 1)
-	if len(packages) != 0 {
-		t.Errorf("expected no packages at depth 1, got %v", packages)
-	}
-	if len(unmapped) != 1 {
-		t.Errorf("expected 1 unmapped file at depth 1, got %v", unmapped)
-	}
-
-	// depth=2 does reach it
-	packages, unmapped = findPackages(tmpDir, []string{"pkg/foo/deep/nested/file.go"}, 2)
-	if len(packages) != 1 || packages[0] != "//pkg/foo" {
-		t.Errorf("expected [//pkg/foo] at depth 2, got %v", packages)
-	}
-	if len(unmapped) != 0 {
-		t.Errorf("expected no unmapped files at depth 2, got %v", unmapped)
+			if !slices.Equal(packages, tt.wantPackages) {
+				t.Errorf("packages = %v, want %v", packages, tt.wantPackages)
+			}
+			if !slices.Equal(unmapped, tt.wantUnmapped) {
+				t.Errorf("unmapped = %v, want %v", unmapped, tt.wantUnmapped)
+			}
+		})
 	}
 }
 
