@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-04-22
+
 ### Added
 
 - `--max-parent-depth` flag and `max_parent_depth` config key to cap how
@@ -107,7 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--debug`, `--cache-dir`, `--clear-cache`, and `--no-cache` CLI flags
 - `BAZEL_AFFECTED_TESTS_FAIL_ON_ERROR` environment variable
 
-[Unreleased]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.4.0...v0.5.0
 [v0.4.0]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.3.1...v0.4.0
 [v0.3.1]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.3.0...v0.3.1
 [v0.3.0]: https://github.com/jaeyeom/bazel-affected-tests/compare/v0.2.1...v0.3.0
