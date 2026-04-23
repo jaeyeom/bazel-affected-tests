@@ -15,6 +15,11 @@ import (
 
 const ConfigFileName = ".bazel-affected-tests.yaml"
 
+// DefaultMaxParentDepth is the default cap on how many parent directories
+// above a changed file's own directory may be walked when searching for a
+// BUILD file. Use -1 (UnlimitedParentDepth in the query package) to disable.
+const DefaultMaxParentDepth = 1
+
 // Config represents the configuration file structure.
 type Config struct {
 	// Version is the configuration file format version. Currently only 1 is supported.
@@ -27,6 +32,14 @@ type Config struct {
 	// (kind('.*_test rule', PKG/...)) is executed. When false, only
 	// same-package and rdeps queries run. Defaults to true if unset.
 	EnableSubpackageQuery *bool `yaml:"enable_subpackage_query"`
+	// MaxParentDepth caps how many parent directories above a changed file's
+	// own directory may be walked looking for a BUILD file. Use -1 for
+	// unlimited. Unset (nil) means use DefaultMaxParentDepth.
+	MaxParentDepth *int `yaml:"max_parent_depth"`
+	// Strict, when true, causes the tool to fail if any changed file does
+	// not map to a Bazel package within MaxParentDepth (after ignore_paths
+	// filtering).
+	Strict bool `yaml:"strict"`
 	// Exclude is a list of path.Match patterns for targets to exclude from query results.
 	Exclude []string `yaml:"exclude"`
 	// Rules maps file glob patterns to Bazel targets to include when matched.
@@ -95,6 +108,16 @@ func (c *Config) shouldIgnoreFile(file string) bool {
 // Returns true if EnableSubpackageQuery is nil (unset) or explicitly true.
 func (c *Config) SubpackageQueryEnabled() bool {
 	return c.EnableSubpackageQuery == nil || *c.EnableSubpackageQuery
+}
+
+// ResolvedMaxParentDepth returns the effective max-parent-depth. If the
+// config's MaxParentDepth is set, that value is used; otherwise fallback is
+// returned.
+func (c *Config) ResolvedMaxParentDepth(fallback int) int {
+	if c == nil || c.MaxParentDepth == nil {
+		return fallback
+	}
+	return *c.MaxParentDepth
 }
 
 // ShouldExclude reports whether the given target matches any exclude pattern.

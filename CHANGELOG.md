@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--max-parent-depth` flag and `max_parent_depth` config key to cap how
+  many parent directories are walked looking for a BUILD file
+- `--strict` flag and `strict` config key to fail when any changed file
+  does not map to a Bazel package within the depth cap
+
+### Changed
+
+- **Breaking:** `FindBazelPackage` no longer walks an unbounded number of
+  parent directories. The default cap is 1, so a changed file that is more
+  than one directory below the nearest BUILD file is now logged as
+  unmapped and skipped. This prevents the tool from silently resolving to
+  a very broad package (e.g. `//`) and pulling in the entire workspace's
+  tests. To restore the previous behavior, pass `--max-parent-depth=-1`
+  or set `max_parent_depth: -1` in `.bazel-affected-tests.yaml`.
+
 ### Fixed
 
 - Bazel internal crashes (e.g., JVM-level exceptions during external repository

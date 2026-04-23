@@ -83,8 +83,18 @@ func resolveTargets(cfg cliConfig, c *cache.Cache) ([]string, error) {
 		}
 	}
 
-	packages := findPackages(repoRoot, changedFiles)
+	maxDepth := resolveMaxParentDepth(cfg, repoCfg)
+	strict := resolveStrict(cfg, repoCfg)
+
+	packages, unmapped := findPackages(repoRoot, changedFiles, maxDepth)
 	slog.Debug("Bazel packages found", "count", len(packages))
+	if len(unmapped) > 0 {
+		if strict {
+			return nil, fmt.Errorf("files not mapped to any Bazel package within max-parent-depth=%d: %v", maxDepth, unmapped)
+		}
+		slog.Warn("files not mapped to any Bazel package within max-parent-depth",
+			"max_parent_depth", maxDepth, "files", unmapped)
+	}
 
 	var allTests []string
 	if len(packages) > 0 {
@@ -131,17 +141,25 @@ func outputOrRun(run bool, targets []string) {
 	os.Exit(exitCode)
 }
 
+// maxParentDepthUnset is a sentinel value used to detect whether the user
+// passed --max-parent-depth on the command line. It is distinct from any
+// meaningful value (including -1 for unlimited).
+const maxParentDepthUnset = -2
+
 type cliConfig struct {
-	debug      bool
-	cacheDir   string
-	clearCache bool
-	noCache    bool
-	filesFrom  string
-	staged     bool
-	head       bool
-	base       string
-	run        bool
-	bestEffort bool
+	debug          bool
+	cacheDir       string
+	clearCache     bool
+	noCache        bool
+	filesFrom      string
+	staged         bool
+	head           bool
+	base           string
+	run            bool
+	bestEffort     bool
+	maxParentDepth int
+	strict         bool
+	strictSet      bool
 }
 
 func parseFlags() cliConfig {
@@ -156,7 +174,18 @@ func parseFlags() cliConfig {
 	flag.StringVar(&cfg.base, "base", "", "Use all changes vs a ref (git diff <ref>)")
 	flag.BoolVar(&cfg.run, "run", false, "Run bazel test with affected targets instead of printing them")
 	flag.BoolVar(&cfg.bestEffort, "best-effort", false, "Log warnings instead of failing on Bazel query errors")
+	flag.IntVar(&cfg.maxParentDepth, "max-parent-depth", maxParentDepthUnset,
+		"Max parent directories to walk looking for a BUILD file (default 1; -1 for unlimited)")
+	flag.BoolVar(&cfg.strict, "strict", false,
+		"Fail if any changed file does not map to a Bazel package within max-parent-depth")
 	flag.Parse()
+
+	// Record whether --strict was explicitly set so config can override only when it wasn't.
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "strict" {
+			cfg.strictSet = true
+		}
+	})
 
 	// Set debug from environment if not set via flag
 	if !cfg.debug && os.Getenv("DEBUG") != "" {
@@ -284,23 +313,47 @@ func getCacheKey(c *cache.Cache, noCache bool, repoRoot string) string {
 	return cacheKey
 }
 
-func findPackages(repoRoot string, changedFiles []string) []string {
+// resolveMaxParentDepth returns the effective max-parent-depth, honoring
+// precedence CLI flag > config > DefaultMaxParentDepth.
+func resolveMaxParentDepth(cfg cliConfig, repoCfg *config.Config) int {
+	if cfg.maxParentDepth != maxParentDepthUnset {
+		return cfg.maxParentDepth
+	}
+	return repoCfg.ResolvedMaxParentDepth(config.DefaultMaxParentDepth)
+}
+
+// resolveStrict returns the effective strict value, honoring precedence
+// CLI flag > config > false.
+func resolveStrict(cfg cliConfig, repoCfg *config.Config) bool {
+	if cfg.strictSet {
+		return cfg.strict
+	}
+	if repoCfg != nil {
+		return repoCfg.Strict
+	}
+	return false
+}
+
+// findPackages resolves each changed file to its Bazel package, capped at
+// maxDepth parent hops. It returns the deduplicated list of packages found
+// and the files that did not resolve within the cap.
+func findPackages(repoRoot string, changedFiles []string, maxDepth int) (packages, unmapped []string) {
 	packageMap := make(map[string]bool)
 	for _, file := range changedFiles {
 		slog.Debug("Processing file", "file", file)
-		if pkg, found := query.FindBazelPackage(repoRoot, file); found {
+		if pkg, found := query.FindBazelPackage(repoRoot, file, maxDepth); found {
 			slog.Debug("Found package", "package", pkg)
 			packageMap[pkg] = true
 		} else {
 			slog.Debug("No Bazel package found for file", "file", file)
+			unmapped = append(unmapped, file)
 		}
 	}
 
-	var packages []string
 	for pkg := range packageMap {
 		packages = append(packages, pkg)
 	}
-	return packages
+	return packages, unmapped
 }
 
 func collectAllTests(packages []string, querier *query.BazelQuerier, c *cache.Cache, cacheKey string, noCache bool) ([]string, error) {

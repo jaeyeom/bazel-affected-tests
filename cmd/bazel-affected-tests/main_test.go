@@ -362,20 +362,102 @@ func TestFindPackages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := findPackages(tmpDir, []string{"pkg/foo/bar.go", "no/build/file.go"})
+	got, unmapped := findPackages(tmpDir, []string{"pkg/foo/bar.go", "no/build/file.go"}, query.UnlimitedParentDepth)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 package, got %d: %v", len(got), got)
 	}
 	if got[0] != "//pkg/foo" {
 		t.Errorf("expected //pkg/foo, got %s", got[0])
 	}
+	if len(unmapped) != 1 || unmapped[0] != "no/build/file.go" {
+		t.Errorf("expected unmapped [no/build/file.go], got %v", unmapped)
+	}
 }
 
 func TestFindPackages_NoBuildFiles(t *testing.T) {
 	tmpDir := t.TempDir()
-	got := findPackages(tmpDir, []string{"some/file.go"})
+	got, unmapped := findPackages(tmpDir, []string{"some/file.go"}, query.UnlimitedParentDepth)
 	if len(got) != 0 {
 		t.Errorf("expected no packages, got %v", got)
+	}
+	if len(unmapped) != 1 || unmapped[0] != "some/file.go" {
+		t.Errorf("expected unmapped [some/file.go], got %v", unmapped)
+	}
+}
+
+func TestFindPackages_RespectsMaxDepth(t *testing.T) {
+	tmpDir := t.TempDir()
+	pkgDir := filepath.Join(tmpDir, "pkg", "foo")
+	deepDir := filepath.Join(pkgDir, "deep", "nested")
+	if err := os.MkdirAll(deepDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "BUILD"), []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// depth=1 cannot reach pkg/foo from pkg/foo/deep/nested (2 hops up)
+	packages, unmapped := findPackages(tmpDir, []string{"pkg/foo/deep/nested/file.go"}, 1)
+	if len(packages) != 0 {
+		t.Errorf("expected no packages at depth 1, got %v", packages)
+	}
+	if len(unmapped) != 1 {
+		t.Errorf("expected 1 unmapped file at depth 1, got %v", unmapped)
+	}
+
+	// depth=2 does reach it
+	packages, unmapped = findPackages(tmpDir, []string{"pkg/foo/deep/nested/file.go"}, 2)
+	if len(packages) != 1 || packages[0] != "//pkg/foo" {
+		t.Errorf("expected [//pkg/foo] at depth 2, got %v", packages)
+	}
+	if len(unmapped) != 0 {
+		t.Errorf("expected no unmapped files at depth 2, got %v", unmapped)
+	}
+}
+
+func TestResolveMaxParentDepth(t *testing.T) {
+	intPtr := func(i int) *int { return &i }
+
+	tests := []struct {
+		name    string
+		cfg     cliConfig
+		repoCfg *config.Config
+		want    int
+	}{
+		{"nothing set uses default", cliConfig{maxParentDepth: maxParentDepthUnset}, nil, config.DefaultMaxParentDepth},
+		{"config overrides default", cliConfig{maxParentDepth: maxParentDepthUnset}, &config.Config{MaxParentDepth: intPtr(3)}, 3},
+		{"flag overrides config", cliConfig{maxParentDepth: 0}, &config.Config{MaxParentDepth: intPtr(3)}, 0},
+		{"flag -1 means unlimited", cliConfig{maxParentDepth: -1}, nil, -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveMaxParentDepth(tt.cfg, tt.repoCfg); got != tt.want {
+				t.Errorf("resolveMaxParentDepth() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveStrict(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     cliConfig
+		repoCfg *config.Config
+		want    bool
+	}{
+		{"nothing set is false", cliConfig{}, nil, false},
+		{"config true, flag not set", cliConfig{}, &config.Config{Strict: true}, true},
+		{"flag false overrides config true", cliConfig{strict: false, strictSet: true}, &config.Config{Strict: true}, false},
+		{"flag true overrides config false", cliConfig{strict: true, strictSet: true}, &config.Config{Strict: false}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveStrict(tt.cfg, tt.repoCfg); got != tt.want {
+				t.Errorf("resolveStrict() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -51,6 +51,8 @@ bazel-affected-tests | xargs -r bazel test
 - `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
 - `--run`: Run `bazel test` with the affected targets instead of printing them
 - `--best-effort`: Log warnings instead of failing on Bazel query errors (also via env `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`)
+- `--max-parent-depth <n>`: Cap how many parent directories above a changed file's own directory may be walked looking for a BUILD file (default `1`; pass `-1` for unlimited). Files that don't resolve within the cap are logged as a warning and skipped.
+- `--strict`: Fail with a non-zero exit if any changed file does not map to a Bazel package within `--max-parent-depth` (after `ignore_paths` filtering). Useful in CI to catch forgotten BUILD entries.
 
 ### Examples
 
@@ -204,6 +206,15 @@ ignore_paths:
 # over-inclusion of unrelated sub-package tests.
 enable_subpackage_query: false
 
+# Cap how many parent directories to walk looking for a BUILD file.
+# Default is 1. Use -1 for unlimited (walks to the repo root).
+max_parent_depth: 1
+
+# When true, fail if any changed file (after ignore_paths filtering) does
+# not map to a Bazel package within max_parent_depth. Useful in CI to
+# catch source files that were forgotten in a BUILD file.
+strict: false
+
 # Exclude targets discovered via bazel query (uses path.Match syntax)
 exclude:
   - "//tools/format:*"
@@ -264,6 +275,8 @@ The config file uses glob patterns to match files:
 5. Targets are deduplicated, so the same target won't appear twice
 
 The `ignore_paths` field uses glob patterns on file paths to skip files entirely before package resolution. Files matching these patterns are excluded from all processing — no package lookup and no test discovery. This is useful for documentation, config files, or other non-code files that don't affect tests.
+
+The `max_parent_depth` field caps how far the tool walks up the directory tree looking for a BUILD file. The default of `1` means a file in a subdirectory of a Bazel package still resolves correctly, but a file buried several directories below any BUILD file is treated as unmapped. This prevents the tool from silently resolving a file to a very broad package (e.g. `//`) and pulling in the entire workspace's tests. Set to `-1` to restore the pre-0.5 behavior of walking all the way to the repo root. Unmapped files are logged as a warning by default; set `strict: true` (or pass `--strict`) to fail the run instead.
 
 The `exclude` field uses `path.Match` syntax on Bazel target labels (e.g., `//tools/format:*` matches all targets in the `//tools/format` package). This is useful for filtering out targets that get discovered via `rdeps` queries but should only be included when explicitly matched by a rule.
 

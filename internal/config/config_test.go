@@ -433,6 +433,102 @@ func TestLoadConfig_WithEnableSubpackageQuery(t *testing.T) {
 	}
 }
 
+func TestConfig_ResolvedMaxParentDepth(t *testing.T) {
+	intPtr := func(i int) *int { return &i }
+
+	tests := []struct {
+		name     string
+		config   *Config
+		fallback int
+		want     int
+	}{
+		{"nil config returns fallback", nil, 1, 1},
+		{"nil field returns fallback", &Config{Version: 1}, 1, 1},
+		{"explicit 0 overrides fallback", &Config{Version: 1, MaxParentDepth: intPtr(0)}, 1, 0},
+		{"explicit 3 overrides fallback", &Config{Version: 1, MaxParentDepth: intPtr(3)}, 1, 3},
+		{"explicit -1 (unlimited) overrides fallback", &Config{Version: 1, MaxParentDepth: intPtr(-1)}, 1, -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.config.ResolvedMaxParentDepth(tt.fallback); got != tt.want {
+				t.Errorf("ResolvedMaxParentDepth(%d) = %d, want %d", tt.fallback, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_WithMaxParentDepthAndStrict(t *testing.T) {
+	intPtr := func(i int) *int { return &i }
+
+	tests := []struct {
+		name       string
+		content    string
+		wantMaxPtr *int
+		wantStrict bool
+	}{
+		{
+			name:       "not set",
+			content:    "version: 1\n",
+			wantMaxPtr: nil,
+			wantStrict: false,
+		},
+		{
+			name:       "max_parent_depth 0",
+			content:    "version: 1\nmax_parent_depth: 0\n",
+			wantMaxPtr: intPtr(0),
+			wantStrict: false,
+		},
+		{
+			name:       "max_parent_depth -1 (unlimited)",
+			content:    "version: 1\nmax_parent_depth: -1\n",
+			wantMaxPtr: intPtr(-1),
+			wantStrict: false,
+		},
+		{
+			name:       "strict true",
+			content:    "version: 1\nstrict: true\n",
+			wantMaxPtr: nil,
+			wantStrict: true,
+		},
+		{
+			name:       "both set",
+			content:    "version: 1\nmax_parent_depth: 2\nstrict: true\n",
+			wantMaxPtr: intPtr(2),
+			wantStrict: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := LoadConfig(tmpDir)
+			if err != nil {
+				t.Fatalf("LoadConfig() error = %v", err)
+			}
+
+			if tt.wantMaxPtr == nil {
+				if got.MaxParentDepth != nil {
+					t.Errorf("MaxParentDepth = %v, want nil", *got.MaxParentDepth)
+				}
+			} else {
+				if got.MaxParentDepth == nil {
+					t.Errorf("MaxParentDepth = nil, want %v", *tt.wantMaxPtr)
+				} else if *got.MaxParentDepth != *tt.wantMaxPtr {
+					t.Errorf("MaxParentDepth = %v, want %v", *got.MaxParentDepth, *tt.wantMaxPtr)
+				}
+			}
+			if got.Strict != tt.wantStrict {
+				t.Errorf("Strict = %v, want %v", got.Strict, tt.wantStrict)
+			}
+		})
+	}
+}
+
 func TestConfig_MatchTargets_Deduplication(t *testing.T) {
 	config := &Config{
 		Version: 1,
