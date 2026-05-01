@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/jaeyeom/bazel-affected-tests/internal/cache"
 	"github.com/jaeyeom/bazel-affected-tests/internal/config"
@@ -94,6 +95,14 @@ func resolveTargets(cfg cliConfig, c *cache.Cache, timer *stageTimer) ([]string,
 	maxDepth := resolveMaxParentDepth(cfg, repoCfg)
 	strict := resolveStrict(cfg, repoCfg)
 
+	changedFiles, err = rejectAbsolutePaths(changedFiles, strict)
+	if err != nil {
+		return nil, err
+	}
+	if len(changedFiles) == 0 {
+		return nil, nil
+	}
+
 	stop = timer.stage("find-packages")
 	packages, unmapped := findPackages(repoRoot, changedFiles, maxDepth)
 	stop()
@@ -106,22 +115,9 @@ func resolveTargets(cfg cliConfig, c *cache.Cache, timer *stageTimer) ([]string,
 			"max_parent_depth", maxDepth, "files", unmapped)
 	}
 
-	var allTests []string
-	if len(packages) > 0 {
-		stop = timer.stage("cache-key")
-		cacheKey := getCacheKey(c, cfg.noCache, repoRoot)
-		stop()
-
-		querier := newQuerier(repoCfg)
-		if cfg.bestEffort {
-			querier.SetFailOnError(false)
-		}
-		stop = timer.stage("bazel-query")
-		allTests, err = collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
-		stop()
-		if err != nil {
-			return nil, err
-		}
+	allTests, err := queryTestsForPackages(cfg, repoCfg, c, repoRoot, packages, timer)
+	if err != nil {
+		return nil, err
 	}
 
 	var configTargets []string
@@ -349,6 +345,58 @@ func resolveStrict(cfg cliConfig, repoCfg *config.Config) bool {
 		return repoCfg.Strict
 	}
 	return false
+}
+
+// partitionAbsolutePaths splits files into those that look like absolute
+// paths (leading "/") and the rest. Absolute paths are never legitimate
+// inputs because changed-file lists are always repo-relative; treating
+// them as relative would silently misroute lookups (e.g., a CODEOWNERS
+// pattern like "/bin/tests/**" would map to the repo's bin/tests package).
+func partitionAbsolutePaths(files []string) (absolute, relative []string) {
+	for _, f := range files {
+		if strings.HasPrefix(f, "/") {
+			absolute = append(absolute, f)
+		} else {
+			relative = append(relative, f)
+		}
+	}
+	return absolute, relative
+}
+
+// queryTestsForPackages computes the cache key and resolves affected tests
+// for the given packages. Returns nil tests when packages is empty.
+func queryTestsForPackages(cfg cliConfig, repoCfg *config.Config, c *cache.Cache, repoRoot string, packages []string, timer *stageTimer) ([]string, error) {
+	if len(packages) == 0 {
+		return nil, nil
+	}
+
+	stop := timer.stage("cache-key")
+	cacheKey := getCacheKey(c, cfg.noCache, repoRoot)
+	stop()
+
+	querier := newQuerier(repoCfg)
+	if cfg.bestEffort {
+		querier.SetFailOnError(false)
+	}
+	stop = timer.stage("bazel-query")
+	tests, err := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
+	stop()
+	return tests, err
+}
+
+// rejectAbsolutePaths drops absolute paths from files. In strict mode any
+// absolute path is a fatal error; otherwise it logs a warning and continues
+// with the remaining repo-relative paths.
+func rejectAbsolutePaths(files []string, strict bool) ([]string, error) {
+	absolute, relative := partitionAbsolutePaths(files)
+	if len(absolute) == 0 {
+		return files, nil
+	}
+	if strict {
+		return nil, fmt.Errorf("file paths must be repo-relative; got absolute paths: %v", absolute)
+	}
+	slog.Warn("ignoring absolute file paths (must be repo-relative)", "files", absolute)
+	return relative, nil
 }
 
 // findPackages resolves each changed file to its Bazel package, capped at

@@ -469,6 +469,91 @@ func TestFindPackages(t *testing.T) {
 	}
 }
 
+func TestPartitionAbsolutePaths(t *testing.T) {
+	tests := []struct {
+		name         string
+		files        []string
+		wantAbsolute []string
+		wantRelative []string
+	}{
+		{name: "empty"},
+		{
+			name:         "all relative",
+			files:        []string{"a/b.go", "c.go"},
+			wantRelative: []string{"a/b.go", "c.go"},
+		},
+		{
+			name:         "all absolute",
+			files:        []string{"/etc/foo", "/bin/bar"},
+			wantAbsolute: []string{"/etc/foo", "/bin/bar"},
+		},
+		{
+			name:         "mixed preserves order",
+			files:        []string{"a.go", "/abs/x", "b.go", "/abs/y"},
+			wantAbsolute: []string{"/abs/x", "/abs/y"},
+			wantRelative: []string{"a.go", "b.go"},
+		},
+		{
+			name:         "codeowners pattern",
+			files:        []string{"/bin/tests/** @team"},
+			wantAbsolute: []string{"/bin/tests/** @team"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotAbs, gotRel := partitionAbsolutePaths(tt.files)
+			if !slices.Equal(gotAbs, tt.wantAbsolute) {
+				t.Errorf("absolute = %v, want %v", gotAbs, tt.wantAbsolute)
+			}
+			if !slices.Equal(gotRel, tt.wantRelative) {
+				t.Errorf("relative = %v, want %v", gotRel, tt.wantRelative)
+			}
+		})
+	}
+}
+
+func TestRejectAbsolutePaths(t *testing.T) {
+	t.Run("no absolutes returns input unchanged", func(t *testing.T) {
+		in := []string{"a.go", "b/c.go"}
+		got, err := rejectAbsolutePaths(in, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !slices.Equal(got, in) {
+			t.Errorf("got %v, want %v", got, in)
+		}
+	})
+
+	t.Run("non-strict warns and drops absolutes", func(t *testing.T) {
+		got, err := rejectAbsolutePaths([]string{"a.go", "/abs/x", "b.go"}, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"a.go", "b.go"}
+		if !slices.Equal(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("strict fails on any absolute", func(t *testing.T) {
+		_, err := rejectAbsolutePaths([]string{"a.go", "/abs/x"}, true)
+		if err == nil {
+			t.Fatal("expected error in strict mode")
+		}
+	})
+
+	t.Run("strict ignores empty input", func(t *testing.T) {
+		got, err := rejectAbsolutePaths(nil, true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("got %v, want empty", got)
+		}
+	})
+}
+
 func TestResolveMaxParentDepth(t *testing.T) {
 	intPtr := func(i int) *int { return &i }
 
