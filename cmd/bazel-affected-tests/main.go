@@ -38,7 +38,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	targets, err := resolveTargets(cfg, c)
+	timer := newStageTimer(cfg.timing)
+	targets, err := resolveTargets(cfg, c, timer)
+	timer.report(os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -49,8 +51,10 @@ func main() {
 
 // resolveTargets detects changed files, finds affected Bazel packages, queries
 // for affected test targets, and applies config-based filtering and additions.
-func resolveTargets(cfg cliConfig, c *cache.Cache) ([]string, error) {
+func resolveTargets(cfg cliConfig, c *cache.Cache, timer *stageTimer) ([]string, error) {
+	stop := timer.stage("repo-root")
 	repoRoot, err := git.RepoRoot(context.Background(), executor.NewBasicExecutor())
+	stop()
 	if err != nil {
 		return nil, fmt.Errorf("not a git repository (or any parent): %w", err)
 	}
@@ -60,7 +64,9 @@ func resolveTargets(cfg cliConfig, c *cache.Cache) ([]string, error) {
 		fmt.Fprintln(os.Stderr, "Warning: stdin is a pipe but an explicit flag is set; ignoring pipe input")
 	}
 
+	stop = timer.stage("changed-files")
 	changedFiles, err := getChangedFiles(cfg, piped)
+	stop()
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +76,9 @@ func resolveTargets(cfg cliConfig, c *cache.Cache) ([]string, error) {
 	}
 
 	// Load config early so ignore_paths can filter files before package resolution
+	stop = timer.stage("load-config")
 	repoCfg, err := config.LoadConfig(repoRoot)
+	stop()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
@@ -86,7 +94,9 @@ func resolveTargets(cfg cliConfig, c *cache.Cache) ([]string, error) {
 	maxDepth := resolveMaxParentDepth(cfg, repoCfg)
 	strict := resolveStrict(cfg, repoCfg)
 
+	stop = timer.stage("find-packages")
 	packages, unmapped := findPackages(repoRoot, changedFiles, maxDepth)
+	stop()
 	slog.Debug("Bazel packages found", "count", len(packages))
 	if len(unmapped) > 0 {
 		if strict {
@@ -98,13 +108,17 @@ func resolveTargets(cfg cliConfig, c *cache.Cache) ([]string, error) {
 
 	var allTests []string
 	if len(packages) > 0 {
+		stop = timer.stage("cache-key")
 		cacheKey := getCacheKey(c, cfg.noCache, repoRoot)
+		stop()
 
 		querier := newQuerier(repoCfg)
 		if cfg.bestEffort {
 			querier.SetFailOnError(false)
 		}
+		stop = timer.stage("bazel-query")
 		allTests, err = collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
+		stop()
 		if err != nil {
 			return nil, err
 		}
@@ -160,6 +174,7 @@ type cliConfig struct {
 	maxParentDepth int
 	strict         bool
 	strictSet      bool
+	timing         bool
 }
 
 func parseFlags() cliConfig {
@@ -178,6 +193,8 @@ func parseFlags() cliConfig {
 		"Max parent directories to walk looking for a BUILD file (default 1; -1 for unlimited)")
 	flag.BoolVar(&cfg.strict, "strict", false,
 		"Fail if any changed file does not map to a Bazel package within max-parent-depth")
+	flag.BoolVar(&cfg.timing, "timing", false, "Print per-stage wall-clock durations to stderr")
+	flag.BoolVar(&cfg.timing, "profile", false, "Alias for --timing")
 	flag.Parse()
 
 	// Record whether --strict was explicitly set so config can override only when it wasn't.
