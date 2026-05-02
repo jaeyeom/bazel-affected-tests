@@ -179,9 +179,30 @@ func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 	return allTests, nil
 }
 
-// query executes a single bazel query. Extra args are inserted between the
-// standard flags and the query string.
+// query executes a single bazel query and returns non-empty output lines.
+// Extra args are inserted between the standard flags and the query string.
 func (q *BazelQuerier) query(queryStr string, extraArgs ...string) ([]string, error) {
+	raw, err := q.queryRaw(queryStr, extraArgs...)
+	if err != nil {
+		return nil, err
+	}
+	if raw == "" {
+		return nil, nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	var results []string
+	for _, line := range lines {
+		if line != "" {
+			results = append(results, line)
+		}
+	}
+	return results, nil
+}
+
+// queryRaw runs bazel query and returns raw stdout. Empty results return "".
+// Used for non-line-oriented outputs such as --output=xml.
+func (q *BazelQuerier) queryRaw(queryStr string, extraArgs ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -196,36 +217,25 @@ func (q *BazelQuerier) query(queryStr string, extraArgs ...string) ([]string, er
 		CommandBuilder: &executor.ShellCommandBuilder{},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("bazel query failed: %w", err)
+		return "", fmt.Errorf("bazel query failed: %w", err)
 	}
 
 	// Check for lock contention - bazel exits with code 45 when another command is running
 	if result.ExitCode == 45 || strings.Contains(result.Stderr, "Another command is running") {
-		return nil, fmt.Errorf("another bazel command is running; wait for it to complete or run 'bazel shutdown'")
+		return "", fmt.Errorf("another bazel command is running; wait for it to complete or run 'bazel shutdown'")
 	}
 
 	// Bazel query may return non-zero exit code for empty results
 	if result.ExitCode != 0 && result.Stderr == "" {
-		return nil, nil
+		return "", nil
 	}
 
 	if result.ExitCode != 0 {
 		if isBazelCrash(result.Stderr) {
-			return nil, fmt.Errorf("bazel query crashed (exit code %d): %s: %w", result.ExitCode, firstLine(result.Stderr), errBazelCrash)
+			return "", fmt.Errorf("bazel query crashed (exit code %d): %s: %w", result.ExitCode, firstLine(result.Stderr), errBazelCrash)
 		}
-		return nil, fmt.Errorf("bazel query failed with exit code %d: %s", result.ExitCode, result.Stderr)
+		return "", fmt.Errorf("bazel query failed with exit code %d: %s", result.ExitCode, result.Stderr)
 	}
 
-	if len(result.Output) == 0 {
-		return nil, nil
-	}
-
-	lines := strings.Split(strings.TrimSpace(result.Output), "\n")
-	var results []string
-	for _, line := range lines {
-		if line != "" {
-			results = append(results, line)
-		}
-	}
-	return results, nil
+	return result.Output, nil
 }
