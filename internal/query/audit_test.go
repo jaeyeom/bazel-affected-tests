@@ -215,6 +215,42 @@ func TestQueryDeps_MultipleTargetsUseSet(t *testing.T) {
 	}
 }
 
+func TestQueryPackages_FiltersExternalAndPrefixes(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--output=package", "//foo/...").
+		WillSucceed("foo\nfoo/bar\n@external//foo\nfoo/baz", 0).
+		Once().
+		Build()
+
+	pkgs, err := q.QueryPackages("//foo/...")
+	if err != nil {
+		t.Fatalf("QueryPackages failed: %v", err)
+	}
+	want := []string{"//foo", "//foo/bar", "//foo/baz"}
+	if !reflect.DeepEqual(pkgs, want) {
+		t.Errorf("packages = %v, want %v", pkgs, want)
+	}
+}
+
+func TestQueryPackages_EmptyResult(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+
+	mockExec.ExpectCommandWithArgs("bazel", "query", "--output=package", "//empty/...").
+		WillSucceed("", 0).
+		Build()
+
+	pkgs, err := q.QueryPackages("//empty/...")
+	if err != nil {
+		t.Fatalf("QueryPackages failed: %v", err)
+	}
+	if len(pkgs) != 0 {
+		t.Errorf("expected no packages, got %v", pkgs)
+	}
+}
+
 func TestQueryDeps_EmptyTargets(t *testing.T) {
 	mockExec := executor.NewMockExecutor()
 	q := NewBazelQuerierWithExecutor(mockExec)

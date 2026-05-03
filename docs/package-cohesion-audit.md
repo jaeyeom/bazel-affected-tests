@@ -316,19 +316,19 @@ JSON output should include enough detail for an external LLM-based advisor:
     {
       "package": "//services/payment",
       "rules": 37,
-      "source_files": 214,
+      "sourceFiles": 214,
       "metrics": {
-        "p90_dependency_amplification": 18.4,
-        "p90_extra_deps": 227
+        "p90DependencyAmplification": 18.4,
+        "p90ExtraDeps": 227
       },
-      "worst_files": [
+      "worstFiles": [
         {
           "path": "services/payment/reconcile.go",
-          "owner_rules": ["//services/payment:reconcile_lib"],
-          "owner_deps": 14,
-          "package_deps": 258,
-          "extra_deps": 244,
-          "dependency_amplification": 18.4
+          "ownerRules": ["//services/payment:reconcile_lib"],
+          "ownerDeps": 14,
+          "packageDeps": 258,
+          "extraDeps": 244,
+          "dependencyAmplification": 18.4
         }
       ],
       "clusters": []
@@ -336,6 +336,10 @@ JSON output should include enough detail for an external LLM-based advisor:
   ]
 }
 ```
+
+JSON keys use camelCase to match the repository's existing lint conventions
+(see `.golangci.yml`). Snake_case keys in early drafts of this design were
+adjusted before the first implementation; consumers should expect camelCase.
 
 ## Clustering and Suggestions
 

@@ -39,6 +39,26 @@ func (q *BazelQuerier) QueryRules(pattern string) ([]Rule, error) {
 	return parseRulesXML([]byte(raw))
 }
 
+// QueryPackages lists the unique workspace packages matched by pattern using
+// `bazel query <pattern> --output=package`. External-repo packages
+// (those containing "@") are filtered out so the audit stays scoped to the
+// local workspace.
+func (q *BazelQuerier) QueryPackages(pattern string) ([]string, error) {
+	lines, err := q.query(pattern, "--output=package")
+	if err != nil {
+		return nil, fmt.Errorf("listing packages for %s: %w", pattern, err)
+	}
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if strings.Contains(l, "@") {
+			continue
+		}
+		out = append(out, "//"+l)
+	}
+	return out, nil
+}
+
 // QueryDeps returns the dependency closure for the given targets via
 // `bazel query 'deps(...)'`. A single target uses `deps(target)`; multiple
 // targets are wrapped as `deps(set(t1 t2 ...))`. Empty input returns nil.

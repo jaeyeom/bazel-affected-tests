@@ -18,6 +18,12 @@ import (
 )
 
 func main() {
+	// Subcommand dispatch must happen before parseFlags, which uses the
+	// global flag.CommandLine and would reject audit-specific flags.
+	if len(os.Args) > 1 && os.Args[1] == "audit-packages" {
+		os.Exit(runAuditPackages(os.Args[2:]))
+	}
+
 	cfg := parseFlags()
 
 	if cfg.debug {
