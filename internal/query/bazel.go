@@ -17,6 +17,11 @@ import (
 // validPkgPattern validates Bazel package labels.
 var validPkgPattern = regexp.MustCompile(`^//[a-zA-Z0-9_./-]*$`)
 
+// DefaultQueryTimeout is the per-query wall-clock limit applied when no
+// timeout is configured. Large repositories whose rdeps queries traverse a
+// big graph may need to raise this via SetQueryTimeout.
+const DefaultQueryTimeout = 30 * time.Second
+
 // errBazelCrash marks a query failure caused by a Bazel internal crash (e.g.,
 // a JVM-level exception inside the Bazel server while fetching an external
 // repository). Crashes are treated as non-fatal regardless of failOnError so
@@ -46,8 +51,9 @@ func firstLine(s string) string {
 // BazelQuerier executes Bazel queries.
 type BazelQuerier struct {
 	executor              executor.Executor
-	failOnError           bool // If true, return errors from query failures; if false, log and continue
-	enableSubpackageQuery bool // If true, run sub-package test queries (PKG/...)
+	failOnError           bool          // If true, return errors from query failures; if false, log and continue
+	enableSubpackageQuery bool          // If true, run sub-package test queries (PKG/...)
+	queryTimeout          time.Duration // Per-query wall-clock limit; defaults to DefaultQueryTimeout
 }
 
 // NewBazelQuerier creates a new BazelQuerier.
@@ -60,6 +66,7 @@ func NewBazelQuerier() *BazelQuerier {
 		executor:              executor.NewBasicExecutor(),
 		failOnError:           !bestEffort,
 		enableSubpackageQuery: true,
+		queryTimeout:          DefaultQueryTimeout,
 	}
 }
 
@@ -71,6 +78,7 @@ func NewBazelQuerierWithExecutor(exec executor.Executor) *BazelQuerier {
 		executor:              exec,
 		failOnError:           !bestEffort,
 		enableSubpackageQuery: true,
+		queryTimeout:          DefaultQueryTimeout,
 	}
 }
 
@@ -84,6 +92,14 @@ func (q *BazelQuerier) SetFailOnError(fail bool) {
 // are executed. When disabled, only same-package and rdeps queries run.
 func (q *BazelQuerier) SetEnableSubpackageQuery(enable bool) {
 	q.enableSubpackageQuery = enable
+}
+
+// SetQueryTimeout sets the per-query wall-clock limit. A non-positive value is
+// ignored so callers cannot accidentally disable the timeout.
+func (q *BazelQuerier) SetQueryTimeout(d time.Duration) {
+	if d > 0 {
+		q.queryTimeout = d
+	}
 }
 
 // collectTests runs a Bazel query and adds the results to testsSet.
@@ -203,7 +219,7 @@ func (q *BazelQuerier) query(queryStr string, extraArgs ...string) ([]string, er
 // queryRaw runs bazel query and returns raw stdout. Empty results return "".
 // Used for non-line-oriented outputs such as --output=xml.
 func (q *BazelQuerier) queryRaw(queryStr string, extraArgs ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), q.queryTimeout)
 	defer cancel()
 
 	args := []string{"query"}
@@ -213,7 +229,7 @@ func (q *BazelQuerier) queryRaw(queryStr string, extraArgs ...string) (string, e
 	result, err := q.executor.Execute(ctx, executor.ToolConfig{
 		Command:        "bazel",
 		Args:           args,
-		Timeout:        30 * time.Second,
+		Timeout:        q.queryTimeout,
 		CommandBuilder: &executor.ShellCommandBuilder{},
 	})
 	if err != nil {

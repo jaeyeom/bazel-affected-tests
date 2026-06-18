@@ -601,6 +601,33 @@ func TestQuery_Timeout(t *testing.T) {
 	}
 }
 
+func TestNewBazelQuerier_DefaultQueryTimeout(t *testing.T) {
+	q := NewBazelQuerierWithExecutor(executor.NewMockExecutor())
+	if q.queryTimeout != DefaultQueryTimeout {
+		t.Errorf("Expected default query timeout %v, got %v", DefaultQueryTimeout, q.queryTimeout)
+	}
+}
+
+func TestSetQueryTimeout_AppliedToExecutor(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+	q.SetQueryTimeout(90 * time.Second)
+
+	var capturedConfig executor.ToolConfig
+	mockExec.ExpectCustom(func(_ context.Context, cfg executor.ToolConfig) bool {
+		capturedConfig = cfg
+		return cfg.Command == "bazel"
+	}).WillSucceed("//test:target", 0).Build()
+
+	if _, err := q.query("//..."); err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+
+	if capturedConfig.Timeout != 90*time.Second {
+		t.Errorf("Expected timeout of 90s, got %v", capturedConfig.Timeout)
+	}
+}
+
 func TestNewBazelQuerier_BestEffortEnvVar(t *testing.T) {
 	tests := []struct {
 		name         string

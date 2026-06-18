@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/jaeyeom/bazel-affected-tests/internal/cache"
 	"github.com/jaeyeom/bazel-affected-tests/internal/config"
@@ -595,6 +596,69 @@ func TestResolveStrict(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := resolveStrict(tt.cfg, tt.repoCfg); got != tt.want {
 				t.Errorf("resolveStrict() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveBestEffort(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name    string
+		cfg     cliConfig
+		repoCfg *config.Config
+		env     string // "" means leave the env var unset
+		want    bool
+	}{
+		{"nothing set is false", cliConfig{}, nil, "", false},
+		{"config true, flag not set", cliConfig{}, &config.Config{BestEffort: boolPtr(true)}, "", true},
+		{"flag true overrides config false", cliConfig{bestEffort: true, bestEffortSet: true}, &config.Config{BestEffort: boolPtr(false)}, "", true},
+		{"flag false overrides config true", cliConfig{bestEffort: false, bestEffortSet: true}, &config.Config{BestEffort: boolPtr(true)}, "", false},
+		{"config false overrides env true", cliConfig{}, &config.Config{BestEffort: boolPtr(false)}, "true", false},
+		{"env used when flag and config unset", cliConfig{}, nil, "true", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldValue, hadEnv := os.LookupEnv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+			defer func() {
+				if hadEnv {
+					os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", oldValue)
+				} else {
+					os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+				}
+			}()
+			if tt.env == "" {
+				os.Unsetenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+			} else {
+				os.Setenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT", tt.env)
+			}
+
+			if got := resolveBestEffort(tt.cfg, tt.repoCfg); got != tt.want {
+				t.Errorf("resolveBestEffort() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveQueryTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     cliConfig
+		repoCfg *config.Config
+		want    time.Duration
+	}{
+		{"nothing set uses default", cliConfig{}, nil, query.DefaultQueryTimeout},
+		{"config overrides default", cliConfig{}, &config.Config{QueryTimeout: "60s"}, 60 * time.Second},
+		{"flag overrides config", cliConfig{queryTimeout: 90 * time.Second}, &config.Config{QueryTimeout: "60s"}, 90 * time.Second},
+		{"flag overrides default", cliConfig{queryTimeout: 5 * time.Second}, nil, 5 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveQueryTimeout(tt.cfg, tt.repoCfg); got != tt.want {
+				t.Errorf("resolveQueryTimeout() = %v, want %v", got, tt.want)
 			}
 		})
 	}
