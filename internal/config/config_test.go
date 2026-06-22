@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -553,5 +554,93 @@ func TestConfig_MatchTargets_Deduplication(t *testing.T) {
 
 	if len(got) > 0 && got[0] != "//..." {
 		t.Errorf("MatchTargets() = %v, want [//...]", got)
+	}
+}
+
+func TestLoadConfig_WithBestEffort(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name    string
+		content string
+		want    *bool
+	}{
+		{"not set", "version: 1\n", nil},
+		{"set to true", "version: 1\nbest_effort: true\n", boolPtr(true)},
+		{"set to false", "version: 1\nbest_effort: false\n", boolPtr(false)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(tt.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := LoadConfig(tmpDir)
+			if err != nil {
+				t.Fatalf("LoadConfig() error = %v", err)
+			}
+
+			switch {
+			case tt.want == nil:
+				if got.BestEffort != nil {
+					t.Errorf("BestEffort = %v, want nil", *got.BestEffort)
+				}
+			case got.BestEffort == nil:
+				t.Errorf("BestEffort = nil, want %v", *tt.want)
+			case *got.BestEffort != *tt.want:
+				t.Errorf("BestEffort = %v, want %v", *got.BestEffort, *tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadConfig_WithQueryTimeout(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := "version: 1\nquery_timeout: 90s\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if got.QueryTimeout != "90s" {
+		t.Errorf("QueryTimeout = %q, want %q", got.QueryTimeout, "90s")
+	}
+}
+
+func TestLoadConfig_InvalidQueryTimeout(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := "version: 1\nquery_timeout: notaduration\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadConfig(tmpDir); err == nil {
+		t.Error("LoadConfig() error = nil, want error for invalid query_timeout")
+	}
+}
+
+func TestConfig_ResolvedQueryTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *Config
+		fallback time.Duration
+		want     time.Duration
+	}{
+		{"nil config returns fallback", nil, 30 * time.Second, 30 * time.Second},
+		{"empty field returns fallback", &Config{Version: 1}, 30 * time.Second, 30 * time.Second},
+		{"explicit value overrides fallback", &Config{Version: 1, QueryTimeout: "90s"}, 30 * time.Second, 90 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.config.ResolvedQueryTimeout(tt.fallback); got != tt.want {
+				t.Errorf("ResolvedQueryTimeout(%v) = %v, want %v", tt.fallback, got, tt.want)
+			}
+		})
 	}
 }

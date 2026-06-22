@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -40,6 +41,16 @@ type Config struct {
 	// not map to a Bazel package within MaxParentDepth (after ignore_paths
 	// filtering).
 	Strict bool `yaml:"strict"`
+	// BestEffort, when true, logs Bazel query failures as warnings and
+	// continues with partial results instead of failing. Unset (nil) means
+	// defer to the CLI flag / environment variable. This is safe to enable
+	// repo-wide only when an authoritative downstream gate (CI/CD) runs the
+	// full test suite; the pre-push run is then just a filter.
+	BestEffort *bool `yaml:"best_effort"`
+	// QueryTimeout is the per-query wall-clock limit as a Go duration string
+	// (e.g. "60s", "2m"). Empty means use the built-in default. Large
+	// monorepos whose rdeps queries traverse a big graph may need to raise it.
+	QueryTimeout string `yaml:"query_timeout"`
 	// Exclude is a list of path.Match patterns for targets to exclude from query results.
 	Exclude []string `yaml:"exclude"`
 	// Rules maps file glob patterns to Bazel targets to include when matched.
@@ -76,7 +87,27 @@ func LoadConfig(configDir string) (*Config, error) {
 		return nil, fmt.Errorf("unsupported config version %d (supported: 1)", config.Version)
 	}
 
+	if config.QueryTimeout != "" {
+		if _, err := time.ParseDuration(config.QueryTimeout); err != nil {
+			return nil, fmt.Errorf("invalid query_timeout %q: %w", config.QueryTimeout, err)
+		}
+	}
+
 	return &config, nil
+}
+
+// ResolvedQueryTimeout returns the effective per-query timeout. If the config's
+// QueryTimeout is set, that value is used; otherwise fallback is returned. The
+// value is validated at load time, so any parse error here falls back silently.
+func (c *Config) ResolvedQueryTimeout(fallback time.Duration) time.Duration {
+	if c == nil || c.QueryTimeout == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(c.QueryTimeout)
+	if err != nil {
+		return fallback
+	}
+	return d
 }
 
 // FilterIgnoredFiles returns files that do not match any ignore_paths pattern.

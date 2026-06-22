@@ -50,7 +50,8 @@ bazel-affected-tests | xargs -r bazel test
 - `--base <ref>`: Use all changes vs a ref (`git diff <ref>`)
 - `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
 - `--run`: Run `bazel test` with the affected targets instead of printing them
-- `--best-effort`: Log warnings instead of failing on Bazel query errors (also via env `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`)
+- `--best-effort`: Log warnings instead of failing on Bazel query errors (also via env `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true` or `best_effort` in the config file)
+- `--query-timeout <dur>`: Per-Bazel-query wall-clock limit, e.g. `60s` or `2m` (overrides `query_timeout` in the config file; default `30s`). Raise this for large monorepos whose `rdeps` queries traverse a big graph.
 - `--max-parent-depth <n>`: Cap how many parent directories above a changed file's own directory may be walked looking for a BUILD file (default `1`; pass `-1` for unlimited). Files that don't resolve within the cap are logged as a warning and skipped.
 - `--strict`: Fail with a non-zero exit if any changed file does not map to a Bazel package within `--max-parent-depth` (after `ignore_paths` filtering). Useful in CI to catch forgotten BUILD entries.
 
@@ -123,7 +124,7 @@ Make sure to run `go install` first to ensure the binary is in your PATH.
 
 By default, Bazel query failures and config parse errors are **fatal** — the tool exits with a nonzero status so CI pipelines and pre-commit hooks detect the problem. This prevents silently missing affected tests.
 
-If you prefer a lenient mode (e.g., for local development where Bazel may not be fully available), use `--best-effort` or set `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`. In this mode, query failures are logged as warnings and the tool continues with partial results.
+If you prefer a lenient mode (e.g., for local development where Bazel may not be fully available), use `--best-effort`, set `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`, or set `best_effort: true` in the config file. In this mode, query failures are logged as warnings and the tool continues with partial results. The CLI flag wins over the config file, which wins over the environment variable. Enabling it repo-wide via the config file is appropriate when this run is only a filter and an authoritative downstream gate (CI/CD) runs the full suite — note that best-effort *under-selects* on a timed-out broad query rather than falling back to running everything.
 
 **Bazel internal crashes** (e.g., JVM-level exceptions inside the Bazel server while fetching an external repository) are always treated as non-fatal, even without `--best-effort`. A crash is a signal that Bazel itself is broken rather than that tests are failing — propagating it would force callers (e.g., pre-commit hooks) to fall back to running the full test set, which would just re-trigger the same crash. Instead, the crashing query is logged as a warning and whatever results were computable from other queries are returned.
 
@@ -214,6 +215,17 @@ max_parent_depth: 1
 # not map to a Bazel package within max_parent_depth. Useful in CI to
 # catch source files that were forgotten in a BUILD file.
 strict: false
+
+# Log Bazel query failures as warnings and continue with partial results
+# instead of failing. Enable repo-wide only when an authoritative downstream
+# gate (CI/CD) runs the full suite and this run is just a filter (e.g. a
+# pre-push hook). Overridden by --best-effort / BAZEL_AFFECTED_TESTS_BEST_EFFORT.
+best_effort: false
+
+# Per-Bazel-query wall-clock limit as a Go duration string (default 30s).
+# Raise this for large monorepos whose rdeps queries traverse a big graph.
+# Overridden by --query-timeout.
+query_timeout: 30s
 
 # Exclude targets discovered via bazel query (uses path.Match syntax)
 exclude:

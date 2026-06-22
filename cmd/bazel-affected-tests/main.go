@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jaeyeom/bazel-affected-tests/internal/cache"
 	"github.com/jaeyeom/bazel-affected-tests/internal/config"
@@ -173,10 +174,12 @@ type cliConfig struct {
 	base           string
 	run            bool
 	bestEffort     bool
+	bestEffortSet  bool
 	maxParentDepth int
 	strict         bool
 	strictSet      bool
 	timing         bool
+	queryTimeout   time.Duration
 }
 
 func parseFlags() cliConfig {
@@ -197,12 +200,17 @@ func parseFlags() cliConfig {
 		"Fail if any changed file does not map to a Bazel package within max-parent-depth")
 	flag.BoolVar(&cfg.timing, "timing", false, "Print per-stage wall-clock durations to stderr")
 	flag.BoolVar(&cfg.timing, "profile", false, "Alias for --timing")
+	flag.DurationVar(&cfg.queryTimeout, "query-timeout", 0,
+		"Per-Bazel-query wall-clock limit (e.g. 60s, 2m); overrides config (default 30s)")
 	flag.Parse()
 
-	// Record whether --strict was explicitly set so config can override only when it wasn't.
+	// Record whether flags were explicitly set so config can override only when they weren't.
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "strict" {
+		switch f.Name {
+		case "strict":
 			cfg.strictSet = true
+		case "best-effort":
+			cfg.bestEffortSet = true
 		}
 	})
 
@@ -353,6 +361,34 @@ func resolveStrict(cfg cliConfig, repoCfg *config.Config) bool {
 	return false
 }
 
+// bestEffortEnv reports whether the BAZEL_AFFECTED_TESTS_BEST_EFFORT
+// environment variable requests best-effort mode.
+func bestEffortEnv() bool {
+	v := os.Getenv("BAZEL_AFFECTED_TESTS_BEST_EFFORT")
+	return v == "true" || v == "1"
+}
+
+// resolveBestEffort returns the effective best-effort value, honoring
+// precedence CLI flag > config > environment variable > false.
+func resolveBestEffort(cfg cliConfig, repoCfg *config.Config) bool {
+	if cfg.bestEffortSet {
+		return cfg.bestEffort
+	}
+	if repoCfg != nil && repoCfg.BestEffort != nil {
+		return *repoCfg.BestEffort
+	}
+	return bestEffortEnv()
+}
+
+// resolveQueryTimeout returns the effective per-query timeout, honoring
+// precedence CLI flag > config > query.DefaultQueryTimeout.
+func resolveQueryTimeout(cfg cliConfig, repoCfg *config.Config) time.Duration {
+	if cfg.queryTimeout > 0 {
+		return cfg.queryTimeout
+	}
+	return repoCfg.ResolvedQueryTimeout(query.DefaultQueryTimeout)
+}
+
 // partitionAbsolutePaths splits files into those that look like absolute
 // paths (leading "/") and the rest. Absolute paths are never legitimate
 // inputs because changed-file lists are always repo-relative; treating
@@ -381,9 +417,8 @@ func queryTestsForPackages(cfg cliConfig, repoCfg *config.Config, c *cache.Cache
 	stop()
 
 	querier := newQuerier(repoCfg)
-	if cfg.bestEffort {
-		querier.SetFailOnError(false)
-	}
+	querier.SetFailOnError(!resolveBestEffort(cfg, repoCfg))
+	querier.SetQueryTimeout(resolveQueryTimeout(cfg, repoCfg))
 	stop = timer.stage("bazel-query")
 	tests, err := collectAllTests(packages, querier, c, cacheKey, cfg.noCache)
 	stop()
