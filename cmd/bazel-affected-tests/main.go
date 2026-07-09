@@ -54,7 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	outputOrRun(cfg.run, targets)
+	outputOrRun(cfg, targets)
 }
 
 // resolveTargets detects changed files, finds affected Bazel packages, queries
@@ -138,8 +138,8 @@ func resolveTargets(cfg cliConfig, c *cache.Cache, timer *stageTimer) ([]string,
 }
 
 // outputOrRun either prints the targets to stdout or runs bazel test with them.
-func outputOrRun(run bool, targets []string) {
-	if !run {
+func outputOrRun(cfg cliConfig, targets []string) {
+	if !cfg.run {
 		for _, target := range targets {
 			fmt.Println(target)
 		}
@@ -150,7 +150,7 @@ func outputOrRun(run bool, targets []string) {
 		return
 	}
 
-	exitCode, err := runBazelTest(executor.NewBasicExecutor(), targets)
+	exitCode, err := runBazelTest(executor.NewBasicExecutor(), targets, cfg.failFast)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error running bazel test: %v\n", err)
 		os.Exit(1)
@@ -173,6 +173,7 @@ type cliConfig struct {
 	head           bool
 	base           string
 	run            bool
+	failFast       bool
 	bestEffort     bool
 	bestEffortSet  bool
 	maxParentDepth int
@@ -193,6 +194,8 @@ func parseFlags() cliConfig {
 	flag.BoolVar(&cfg.head, "head", false, "Use staged + unstaged files (git diff HEAD)")
 	flag.StringVar(&cfg.base, "base", "", "Use all changes vs a ref (git diff <ref>)")
 	flag.BoolVar(&cfg.run, "run", false, "Run bazel test with affected targets instead of printing them")
+	flag.BoolVar(&cfg.failFast, "fail-fast", false,
+		"With --run, stop bazel test after the first test failure (passes --test_keep_going=false and --test_runner_fail_fast)")
 	flag.BoolVar(&cfg.bestEffort, "best-effort", false, "Log warnings instead of failing on Bazel query errors")
 	flag.IntVar(&cfg.maxParentDepth, "max-parent-depth", maxParentDepthUnset,
 		"Max parent directories to walk looking for a BUILD file (default 1; -1 for unlimited)")
@@ -524,10 +527,17 @@ func mergeTargets(tests []string, configTargets []string) []string {
 }
 
 // runBazelTest executes bazel test with the given targets and returns the exit code.
-func runBazelTest(exec executor.Executor, targets []string) (int, error) {
+// When failFast is true, Bazel is told to stop after the first test failure
+// (--test_keep_going=false) and to ask the test runner to stop after the first
+// failing case (--test_runner_fail_fast).
+func runBazelTest(exec executor.Executor, targets []string, failFast bool) (int, error) {
 	ctx := context.Background()
 
-	args := append([]string{"test"}, targets...)
+	args := []string{"test"}
+	if failFast {
+		args = append(args, "--test_keep_going=false", "--test_runner_fail_fast")
+	}
+	args = append(args, targets...)
 
 	result, err := exec.Execute(ctx, executor.ToolConfig{
 		Command:        "bazel",
