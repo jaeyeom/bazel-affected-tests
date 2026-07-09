@@ -50,6 +50,7 @@ bazel-affected-tests | xargs -r bazel test
 - `--base <ref>`: Use all changes vs a ref (`git diff <ref>`)
 - `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
 - `--run`: Run `bazel test` with the affected targets instead of printing them
+- `--fail-fast`: With `--run`, stop after the first test failure (passes Bazel `--test_keep_going=false` and `--test_runner_fail_fast`). Prefer this for hooks when latency matters more than reporting every failing target; has no effect when only listing targets
 - `--best-effort`: Log warnings instead of failing on Bazel query errors (also via env `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true` or `best_effort` in the config file)
 - `--query-timeout <dur>`: Per-Bazel-query wall-clock limit, e.g. `60s` or `2m` (overrides `query_timeout` in the config file; default `30s`). Raise this for large monorepos whose `rdeps` queries traverse a big graph.
 - `--max-parent-depth <n>`: Cap how many parent directories above a changed file's own directory may be walked looking for a BUILD file (default `1`; pass `-1` for unlimited). Files that don't resolve within the cap are logged as a warning and skipped.
@@ -69,6 +70,9 @@ bazel-affected-tests --no-cache
 
 # Run affected tests directly (no xargs needed)
 bazel-affected-tests --run
+
+# Stop after the first test failure (faster feedback for hooks)
+bazel-affected-tests --run --fail-fast
 
 # Combine with other flags
 bazel-affected-tests --run --staged

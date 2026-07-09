@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--fail-fast` flag for use with `--run`: stops `bazel test` after the first
+  test failure (`--test_keep_going=false` and `--test_runner_fail_fast`)
+
 ## [v0.5.0] - 2026-04-22
 
 ### Added

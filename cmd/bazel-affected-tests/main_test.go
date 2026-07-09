@@ -51,7 +51,7 @@ func TestRunBazelTest(t *testing.T) {
 		Once().
 		Build()
 
-	exitCode, err := runBazelTest(mockExec, targets)
+	exitCode, err := runBazelTest(mockExec, targets, false)
 	if err != nil {
 		t.Fatalf("runBazelTest() error: %v", err)
 	}
@@ -73,12 +73,36 @@ func TestRunBazelTest_Failure(t *testing.T) {
 		Once().
 		Build()
 
-	exitCode, err := runBazelTest(mockExec, targets)
+	exitCode, err := runBazelTest(mockExec, targets, false)
 	if err != nil {
 		t.Fatalf("runBazelTest() error: %v", err)
 	}
 	if exitCode != 3 {
 		t.Errorf("exit code = %d, want 3", exitCode)
+	}
+
+	if err := mockExec.AssertExpectationsMet(); err != nil {
+		t.Errorf("mock expectations not met: %v", err)
+	}
+}
+
+func TestRunBazelTest_FailFast(t *testing.T) {
+	targets := []string{"//pkg/foo:test1", "//pkg/bar:test2"}
+
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("bazel", "test",
+		"--test_keep_going=false", "--test_runner_fail_fast",
+		"//pkg/foo:test1", "//pkg/bar:test2").
+		WillSucceed("", 0).
+		Once().
+		Build()
+
+	exitCode, err := runBazelTest(mockExec, targets, true)
+	if err != nil {
+		t.Fatalf("runBazelTest() error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("exit code = %d, want 0", exitCode)
 	}
 
 	if err := mockExec.AssertExpectationsMet(); err != nil {
@@ -715,7 +739,7 @@ func TestOutputOrRun_PrintsTargets(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	outputOrRun(false, []string{"//a:test", "//b:test"})
+	outputOrRun(cliConfig{}, []string{"//a:test", "//b:test"})
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -737,7 +761,7 @@ func TestOutputOrRun_EmptyTargets(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	outputOrRun(false, nil)
+	outputOrRun(cliConfig{}, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
