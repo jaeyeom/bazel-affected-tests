@@ -644,3 +644,32 @@ func TestConfig_ResolvedQueryTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfig_WithTestSizeFilters(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := "version: 1\ntest_size_filters:\n  - small\n  - Medium\n  - small\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	want := []string{"small", "medium"}
+	if !reflect.DeepEqual(got.TestSizeFilters, want) {
+		t.Errorf("TestSizeFilters = %v, want %v", got.TestSizeFilters, want)
+	}
+}
+
+func TestLoadConfig_InvalidTestSizeFilters(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := "version: 1\ntest_size_filters:\n  - tiny\n"
+	if err := os.WriteFile(filepath.Join(tmpDir, ConfigFileName), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadConfig(tmpDir); err == nil {
+		t.Error("LoadConfig() error = nil, want error for invalid test_size_filters")
+	}
+}

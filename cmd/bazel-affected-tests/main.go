@@ -134,7 +134,33 @@ func resolveTargets(cfg cliConfig, c *cache.Cache, timer *stageTimer) ([]string,
 		slog.Debug("Config targets matched", "count", len(configTargets))
 	}
 
-	return mergeTargets(allTests, configTargets), nil
+	targets := mergeTargets(allTests, configTargets)
+	return applyTestSizeFilter(cfg, repoCfg, targets, timer)
+}
+
+// applyTestSizeFilter restricts targets to the configured Bazel test sizes.
+// When no size filter is set, targets is returned unchanged.
+func applyTestSizeFilter(cfg cliConfig, repoCfg *config.Config, targets []string, timer *stageTimer) ([]string, error) {
+	sizes, err := resolveTestSizeFilters(cfg, repoCfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(sizes) == 0 {
+		return targets, nil
+	}
+
+	stop := timer.stage("size-filter")
+	querier := newQuerier(repoCfg)
+	querier.SetFailOnError(!resolveBestEffort(cfg, repoCfg))
+	querier.SetQueryTimeout(resolveQueryTimeout(cfg, repoCfg))
+	filtered, err := querier.FilterBySize(targets, sizes)
+	stop()
+	if err != nil {
+		return nil, fmt.Errorf("filtering tests by size: %w", err)
+	}
+	sort.Strings(filtered)
+	slog.Debug("Targets after size filter", "count", len(filtered), "sizes", sizes)
+	return filtered, nil
 }
 
 // outputOrRun either prints the targets to stdout or runs bazel test with them.
@@ -174,6 +200,7 @@ type cliConfig struct {
 	base           string
 	run            bool
 	failFast       bool
+	testSize       string // comma-separated sizes from --test-size; empty means unset
 	bestEffort     bool
 	bestEffortSet  bool
 	maxParentDepth int
@@ -196,6 +223,8 @@ func parseFlags() cliConfig {
 	flag.BoolVar(&cfg.run, "run", false, "Run bazel test with affected targets instead of printing them")
 	flag.BoolVar(&cfg.failFast, "fail-fast", false,
 		"With --run, stop bazel test after the first test failure (passes --test_keep_going=false and --test_runner_fail_fast)")
+	flag.StringVar(&cfg.testSize, "test-size", "",
+		"Comma-separated Bazel test sizes to keep after affected selection (small,medium,large,enormous); applies to list and --run")
 	flag.BoolVar(&cfg.bestEffort, "best-effort", false, "Log warnings instead of failing on Bazel query errors")
 	flag.IntVar(&cfg.maxParentDepth, "max-parent-depth", maxParentDepthUnset,
 		"Max parent directories to walk looking for a BUILD file (default 1; -1 for unlimited)")
@@ -390,6 +419,23 @@ func resolveQueryTimeout(cfg cliConfig, repoCfg *config.Config) time.Duration {
 		return cfg.queryTimeout
 	}
 	return repoCfg.ResolvedQueryTimeout(query.DefaultQueryTimeout)
+}
+
+// resolveTestSizeFilters returns the effective size filter list, honoring
+// precedence CLI flag > config > none. Empty means no size filtering.
+func resolveTestSizeFilters(cfg cliConfig, repoCfg *config.Config) ([]string, error) {
+	if cfg.testSize != "" {
+		sizes, err := query.ParseTestSizes(cfg.testSize)
+		if err != nil {
+			return nil, fmt.Errorf("parsing --test-size: %w", err)
+		}
+		return sizes, nil
+	}
+	if repoCfg != nil && len(repoCfg.TestSizeFilters) > 0 {
+		// Already validated/normalized at config load time.
+		return repoCfg.TestSizeFilters, nil
+	}
+	return nil, nil
 }
 
 // partitionAbsolutePaths splits files into those that look like absolute

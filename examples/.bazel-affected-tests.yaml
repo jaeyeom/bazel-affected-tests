@@ -15,6 +15,13 @@ version: 1
 # triggers an rdeps query over a big graph. Overridden by --query-timeout.
 # query_timeout: 30s
 
+# Keep only tests of these Bazel sizes after affected selection (list and
+# --run). Prefer small/medium for local hooks; leave large/enormous to CI.
+# Overridden by --test-size. Omitted means no size filter (all sizes).
+# test_size_filters:
+#   - small
+#   - medium
+
 # Ignore file paths before package resolution.
 # Files matching these patterns are skipped entirely — no package lookup,
 # no test discovery. Uses the same glob syntax as rule patterns.

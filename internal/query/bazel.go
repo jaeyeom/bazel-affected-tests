@@ -127,6 +127,110 @@ func (q *BazelQuerier) collectTests(queryStr, label, pkg string, testsSet map[st
 	return nil
 }
 
+// validTestSizes are the Bazel test size attribute values.
+// See https://bazel.build/reference/be/common-definitions#common-attributes-tests
+var validTestSizes = map[string]bool{
+	"small":    true,
+	"medium":   true,
+	"large":    true,
+	"enormous": true,
+}
+
+// ParseTestSizes parses a comma-separated list of Bazel test sizes
+// (small, medium, large, enormous). Whitespace around each token is ignored.
+// Returns nil when s is empty. Returns an error for unknown size names.
+func ParseTestSizes(s string) ([]string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ",")
+	sizes := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(strings.ToLower(p))
+		if p == "" {
+			continue
+		}
+		sizes = append(sizes, p)
+	}
+	return ValidateTestSizes(sizes)
+}
+
+// ValidateTestSizes checks that every entry is a known Bazel test size and
+// returns a de-duplicated slice preserving first-seen order. Returns nil when
+// sizes is empty.
+func ValidateTestSizes(sizes []string) ([]string, error) {
+	if len(sizes) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]bool, len(sizes))
+	out := make([]string, 0, len(sizes))
+	for _, size := range sizes {
+		size = strings.TrimSpace(strings.ToLower(size))
+		if size == "" {
+			continue
+		}
+		if !validTestSizes[size] {
+			return nil, fmt.Errorf("invalid test size %q (want small, medium, large, or enormous)", size)
+		}
+		if seen[size] {
+			continue
+		}
+		seen[size] = true
+		out = append(out, size)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// FilterBySize returns the subset of targets whose Bazel test size attribute
+// matches one of the given sizes. Filtering is applied via a single
+// `attr("size", ...)` query over the already-computed target set, so it runs
+// after affected-test discovery (and does not replace it).
+//
+// When sizes is empty, targets is returned unchanged and no query is run.
+// Tests with no explicit size typically default to "medium" in Bazel; such
+// targets match a medium filter when the default is visible to bazel query.
+//
+// On query failure: if failOnError is true the error is returned; otherwise a
+// warning is logged and the original (unfiltered) targets are returned so
+// best-effort mode does not silently drop the whole set.
+func (q *BazelQuerier) FilterBySize(targets []string, sizes []string) ([]string, error) {
+	if len(sizes) == 0 || len(targets) == 0 {
+		return targets, nil
+	}
+
+	validated, err := ValidateTestSizes(sizes)
+	if err != nil {
+		return nil, err
+	}
+	if len(validated) == 0 {
+		return targets, nil
+	}
+
+	// attr("size", "small|medium", set(//a:t1 //b:t2))
+	pattern := strings.Join(validated, "|")
+	queryStr := fmt.Sprintf(`attr("size", "%s", set(%s))`, pattern, strings.Join(targets, " "))
+
+	filtered, err := q.query(queryStr)
+	if err != nil {
+		if errors.Is(err, errBazelCrash) {
+			slog.Warn("Bazel crashed while filtering by test size, returning unfiltered targets", "error", err)
+			return targets, nil
+		}
+		if q.failOnError {
+			return nil, fmt.Errorf("failed to filter tests by size %v: %w", validated, err)
+		}
+		slog.Warn("Error filtering tests by size, returning unfiltered targets", "sizes", validated, "error", err)
+		return targets, nil
+	}
+
+	slog.Debug("Size-filtered tests", "before", len(targets), "after", len(filtered), "sizes", validated)
+	return filtered, nil
+}
+
 // FindAffectedTests finds test targets affected by changes to the given packages.
 func (q *BazelQuerier) FindAffectedTests(packages []string) ([]string, error) {
 	if len(packages) == 0 {

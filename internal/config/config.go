@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -51,6 +52,11 @@ type Config struct {
 	// (e.g. "60s", "2m"). Empty means use the built-in default. Large
 	// monorepos whose rdeps queries traverse a big graph may need to raise it.
 	QueryTimeout string `yaml:"query_timeout"`
+	// TestSizeFilters restricts results to tests whose Bazel size attribute is
+	// one of the listed values (small, medium, large, enormous). Applied after
+	// affected-test discovery. Empty means no size filter (all sizes).
+	// Overridden by the --test-size CLI flag.
+	TestSizeFilters []string `yaml:"test_size_filters"`
 	// Exclude is a list of path.Match patterns for targets to exclude from query results.
 	Exclude []string `yaml:"exclude"`
 	// Rules maps file glob patterns to Bazel targets to include when matched.
@@ -93,7 +99,44 @@ func LoadConfig(configDir string) (*Config, error) {
 		}
 	}
 
+	if len(config.TestSizeFilters) > 0 {
+		normalized, err := normalizeTestSizeFilters(config.TestSizeFilters)
+		if err != nil {
+			return nil, err
+		}
+		config.TestSizeFilters = normalized
+	}
+
 	return &config, nil
+}
+
+// validTestSizes mirrors Bazel's test size attribute values.
+var validTestSizes = map[string]bool{
+	"small":    true,
+	"medium":   true,
+	"large":    true,
+	"enormous": true,
+}
+
+// normalizeTestSizeFilters lowercases, de-duplicates, and validates size names.
+func normalizeTestSizeFilters(sizes []string) ([]string, error) {
+	seen := make(map[string]bool, len(sizes))
+	out := make([]string, 0, len(sizes))
+	for _, size := range sizes {
+		size = strings.TrimSpace(strings.ToLower(size))
+		if size == "" {
+			continue
+		}
+		if !validTestSizes[size] {
+			return nil, fmt.Errorf("invalid test_size_filters entry %q (want small, medium, large, or enormous)", size)
+		}
+		if seen[size] {
+			continue
+		}
+		seen[size] = true
+		out = append(out, size)
+	}
+	return out, nil
 }
 
 // ResolvedQueryTimeout returns the effective per-query timeout. If the config's

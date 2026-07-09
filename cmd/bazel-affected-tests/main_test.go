@@ -833,3 +833,35 @@ func TestGetPackageTests_QueryError(t *testing.T) {
 		t.Fatal("expected error from getPackageTests when query fails")
 	}
 }
+
+func TestResolveTestSizeFilters(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     cliConfig
+		repoCfg *config.Config
+		want    []string
+		wantErr bool
+	}{
+		{"nothing set", cliConfig{}, nil, nil, false},
+		{"config only", cliConfig{}, &config.Config{TestSizeFilters: []string{"small", "medium"}}, []string{"small", "medium"}, false},
+		{"flag overrides config", cliConfig{testSize: "large"}, &config.Config{TestSizeFilters: []string{"small"}}, []string{"large"}, false},
+		{"flag multi", cliConfig{testSize: "small,medium"}, nil, []string{"small", "medium"}, false},
+		{"flag invalid", cliConfig{testSize: "tiny"}, nil, nil, true},
+		{"empty config list is unset", cliConfig{}, &config.Config{TestSizeFilters: nil}, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveTestSizeFilters(tt.cfg, tt.repoCfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("resolveTestSizeFilters() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("resolveTestSizeFilters() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

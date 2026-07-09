@@ -51,6 +51,7 @@ bazel-affected-tests | xargs -r bazel test
 - `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
 - `--run`: Run `bazel test` with the affected targets instead of printing them
 - `--fail-fast`: With `--run`, stop after the first test failure (passes Bazel `--test_keep_going=false` and `--test_runner_fail_fast`). Prefer this for hooks when latency matters more than reporting every failing target; has no effect when only listing targets
+- `--test-size <sizes>`: Comma-separated Bazel test sizes to keep after affected selection (`small`, `medium`, `large`, `enormous`). Applies to both list and `--run` modes (overrides `test_size_filters` in the config file). Prefer this for hooks when you want fast small/medium feedback and leave large/enormous coverage to CI. Default when omitted is no size filter (all sizes). Tests with no explicit `size` typically default to `medium` in Bazel.
 - `--best-effort`: Log warnings instead of failing on Bazel query errors (also via env `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true` or `best_effort` in the config file)
 - `--query-timeout <dur>`: Per-Bazel-query wall-clock limit, e.g. `60s` or `2m` (overrides `query_timeout` in the config file; default `30s`). Raise this for large monorepos whose `rdeps` queries traverse a big graph.
 - `--max-parent-depth <n>`: Cap how many parent directories above a changed file's own directory may be walked looking for a BUILD file (default `1`; pass `-1` for unlimited). Files that don't resolve within the cap are logged as a warning and skipped.
@@ -73,6 +74,10 @@ bazel-affected-tests --run
 
 # Stop after the first test failure (faster feedback for hooks)
 bazel-affected-tests --run --fail-fast
+
+# Only small and medium tests (skip large/enormous for local speed)
+bazel-affected-tests --test-size small,medium
+bazel-affected-tests --run --test-size small,medium --fail-fast
 
 # Combine with other flags
 bazel-affected-tests --run --staged
@@ -231,6 +236,13 @@ best_effort: false
 # Overridden by --query-timeout.
 query_timeout: 30s
 
+# Keep only tests of these Bazel sizes after affected selection.
+# Useful for pre-push / local hooks that want fast feedback while CI runs
+# large and enormous tests. Overridden by --test-size. Omitted = all sizes.
+# test_size_filters:
+#   - small
+#   - medium
+
 # Exclude targets discovered via bazel query (uses path.Match syntax)
 exclude:
   - "//tools/format:*"
@@ -289,6 +301,8 @@ The config file uses glob patterns to match files:
 3. Each changed file is checked against the `rules` patterns
 4. If any pattern matches, the corresponding targets are added to the output
 5. Targets are deduplicated, so the same target won't appear twice
+6. If `--test-size` / `test_size_filters` is set, only tests matching those
+   Bazel sizes remain (applied after affected selection, not instead of it)
 
 The `ignore_paths` field uses glob patterns on file paths to skip files entirely before package resolution. Files matching these patterns are excluded from all processing — no package lookup and no test discovery. This is useful for documentation, config files, or other non-code files that don't affect tests.
 

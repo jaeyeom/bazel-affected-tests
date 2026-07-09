@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -1015,5 +1016,150 @@ func TestQuery_LockContentionByStderr(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "another bazel command is running") {
 		t.Errorf("Expected error message about bazel command running, got: %v", err)
+	}
+}
+
+func TestParseTestSizes(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    []string
+		wantErr bool
+	}{
+		{"empty", "", nil, false},
+		{"whitespace only", "  ", nil, false},
+		{"single", "small", []string{"small"}, false},
+		{"comma list", "small,medium", []string{"small", "medium"}, false},
+		{"spaces and case", " Small , MEDIUM ", []string{"small", "medium"}, false},
+		{"dedupe", "small,small,medium", []string{"small", "medium"}, false},
+		{"all sizes", "small,medium,large,enormous", []string{"small", "medium", "large", "enormous"}, false},
+		{"invalid", "tiny", nil, true},
+		{"mixed invalid", "small,huge", nil, true},
+		{"trailing comma", "small,", []string{"small"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseTestSizes(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ParseTestSizes(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParseTestSizes(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateTestSizes(t *testing.T) {
+	got, err := ValidateTestSizes([]string{"MEDIUM", "small", "small"})
+	if err != nil {
+		t.Fatalf("ValidateTestSizes error: %v", err)
+	}
+	want := []string{"medium", "small"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ValidateTestSizes = %v, want %v", got, want)
+	}
+
+	if _, err := ValidateTestSizes([]string{"xlarge"}); err == nil {
+		t.Error("expected error for invalid size")
+	}
+}
+
+func TestFilterBySize_NoOp(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+
+	targets := []string{"//a:t1", "//b:t2"}
+	got, err := q.FilterBySize(targets, nil)
+	if err != nil {
+		t.Fatalf("FilterBySize empty sizes: %v", err)
+	}
+	if !reflect.DeepEqual(got, targets) {
+		t.Errorf("FilterBySize empty sizes = %v, want %v", got, targets)
+	}
+
+	got, err = q.FilterBySize(nil, []string{"small"})
+	if err != nil {
+		t.Fatalf("FilterBySize empty targets: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("FilterBySize empty targets = %v, want nil/empty", got)
+	}
+
+	if len(mockExec.GetCallHistory()) != 0 {
+		t.Error("expected no bazel calls for no-op filter")
+	}
+}
+
+func TestFilterBySize_QueriesAndReturns(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+
+	targets := []string{"//pkg:small_test", "//pkg:large_test", "//pkg:medium_test"}
+	mockExec.ExpectCommandWithArgs("bazel", "query",
+		`attr("size", "small|medium", set(//pkg:small_test //pkg:large_test //pkg:medium_test))`).
+		WillSucceed("//pkg:small_test\n//pkg:medium_test", 0).
+		Once().
+		Build()
+
+	got, err := q.FilterBySize(targets, []string{"small", "medium"})
+	if err != nil {
+		t.Fatalf("FilterBySize error: %v", err)
+	}
+	want := []string{"//pkg:small_test", "//pkg:medium_test"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FilterBySize = %v, want %v", got, want)
+	}
+	if err := mockExec.AssertExpectationsMet(); err != nil {
+		t.Errorf("mock expectations: %v", err)
+	}
+}
+
+func TestFilterBySize_FailOnError(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+	q.SetFailOnError(true)
+
+	mockExec.ExpectCommandWithArgs("bazel", "query",
+		`attr("size", "small", set(//pkg:t))`).
+		WillFail("boom", 1).
+		Once().
+		Build()
+
+	_, err := q.FilterBySize([]string{"//pkg:t"}, []string{"small"})
+	if err == nil {
+		t.Fatal("expected error when size filter query fails")
+	}
+}
+
+func TestFilterBySize_BestEffortReturnsUnfiltered(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	q := NewBazelQuerierWithExecutor(mockExec)
+	q.SetFailOnError(false)
+
+	targets := []string{"//pkg:t1", "//pkg:t2"}
+	mockExec.ExpectCommandWithArgs("bazel", "query",
+		`attr("size", "small", set(//pkg:t1 //pkg:t2))`).
+		WillFail("boom", 1).
+		Once().
+		Build()
+
+	got, err := q.FilterBySize(targets, []string{"small"})
+	if err != nil {
+		t.Fatalf("expected no error in best-effort mode: %v", err)
+	}
+	if !reflect.DeepEqual(got, targets) {
+		t.Errorf("best-effort FilterBySize = %v, want original %v", got, targets)
+	}
+}
+
+func TestFilterBySize_InvalidSize(t *testing.T) {
+	q := NewBazelQuerierWithExecutor(executor.NewMockExecutor())
+	_, err := q.FilterBySize([]string{"//pkg:t"}, []string{"tiny"})
+	if err == nil {
+		t.Fatal("expected error for invalid size")
 	}
 }
