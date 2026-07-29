@@ -6,8 +6,9 @@ version: 1
 # Log Bazel query failures as warnings and continue with partial results
 # instead of failing. Safe to enable repo-wide only when an authoritative
 # downstream gate (CI/CD) runs the full test suite and this run is just a
-# filter (e.g. a pre-push hook). Overridden by --best-effort and the
-# BAZEL_AFFECTED_TESTS_BEST_EFFORT environment variable.
+# soft filter (e.g. pre-commit). Prefer false for blocking pre-push hooks.
+# Overridden by --best-effort and the BAZEL_AFFECTED_TESTS_BEST_EFFORT
+# environment variable.
 # best_effort: false
 
 # Per-Bazel-query wall-clock limit as a Go duration string (e.g. "60s", "2m").

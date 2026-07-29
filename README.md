@@ -47,7 +47,11 @@ bazel-affected-tests | xargs -r bazel test
 - `--no-cache`: Disable caching for this run
 - `--staged`: Use staged files only (`git diff --cached`)
 - `--head`: Use staged + unstaged files (`git diff HEAD`)
-- `--base <ref>`: Use all changes vs a ref (`git diff <ref>`)
+- `--base <ref>`: Use all changes vs a ref (`git diff <ref>` against the working tree)
+- `--diff <old>..<new>` / `--diff <old>...<new>`: Files differing between two tree-ishes (no working tree). Two-dot is tip-to-tip; three-dot is PR-scope (`git diff A...B`)
+- `--pre-push`: Read git pre-push stdin (`local_ref local_oid remote_ref remote_oid`) and select files from the push range (PR-scope vs the integration branch by default)
+- `--pre-push-base <ref>`: With `--pre-push`, preferred integration branch for PR-scope (default: first of `origin/main`, `main`, `origin/master`, `master` that exists)
+- `--pre-push-tip`: With `--pre-push`, use tip-to-tip (`remote_oid..local_oid`) instead of PR-scope; new branches still fall back to PR-scope
 - `--files-from <path>`: Read changed file list from a file (use `-` for stdin)
 - `--run`: Run `bazel test` with the affected targets instead of printing them
 - `--fail-fast`: With `--run`, stop after the first test failure (passes Bazel `--test_keep_going=false` and `--test_runner_fail_fast`). Prefer this for hooks when latency matters more than reporting every failing target; has no effect when only listing targets
@@ -83,6 +87,10 @@ bazel-affected-tests --run --test-size small,medium --fail-fast
 bazel-affected-tests --run --staged
 bazel-affected-tests --run --base main
 
+# Tree-ish range (clean tree / push-range friendly; no working tree)
+bazel-affected-tests --diff origin/main...HEAD
+bazel-affected-tests --run --diff "$remote_oid..$local_oid"
+
 # Use xargs (note: add -r on GNU/Linux to avoid running bazel with no targets)
 bazel-affected-tests | xargs -r bazel test
 
@@ -95,12 +103,14 @@ bazel-affected-tests --files-from changed_files.txt
 
 ### Integration with Pre-commit Hooks
 
+Pre-commit should use the **working tree / index** (what you are about to commit). Soft local gates may use `--best-effort`; CI remains the authoritative full suite.
+
 Add to your pre-commit configuration:
 
 ```yaml
 - id: bazel-affected-tests
   name: Run affected Bazel tests
-  entry: bazel-affected-tests --run
+  entry: bazel-affected-tests --run --staged --fail-fast
   language: system
 ```
 
@@ -108,18 +118,49 @@ Add to your pre-commit configuration:
 # Alternative using xargs (works on macOS; add -r for GNU/Linux)
 - id: bazel-affected-tests
   name: Run affected Bazel tests
-  entry: sh -c 'targets=$(bazel-affected-tests) && [ -n "$targets" ] && echo "$targets" | xargs bazel test'
+  entry: sh -c 'targets=$(bazel-affected-tests --staged) && [ -n "$targets" ] && echo "$targets" | xargs bazel test'
   language: system
 ```
 
 Make sure to run `go install` first to ensure the binary is in your PATH.
 
+### Integration with Pre-push Hooks
+
+Pre-push must use the **commits being pushed**, not a clean working tree. Use `--pre-push` so the tool reads git’s pre-push stdin protocol and diffs tree-ishes (PR-scope by default, which is correct after rebase + force-with-lease).
+
+**Do not** use auto mode, `--staged`, or `--head` on pre-push: with a clean tree they select no files and the push succeeds without running tests. **Do not** enable `--best-effort` for a blocking pre-push gate (query timeouts under-select and still exit 0).
+
+Example hook (`examples/pre-push`):
+
+```bash
+#!/usr/bin/env bash
+# pre-push: run affected tests for the push range (PR-scope).
+set -euo pipefail
+exec bazel-affected-tests --pre-push --run --fail-fast
+```
+
+Install as `.git/hooks/pre-push` (or via your hook manager) and ensure it is executable. Optional:
+
+```bash
+# Prefer a specific integration branch for PR-scope
+bazel-affected-tests --pre-push --pre-push-base origin/develop --run --fail-fast
+
+# Tip-to-tip only (what changed since the remote tip; weaker after rebase)
+bazel-affected-tests --pre-push --pre-push-tip --run --fail-fast
+```
+
+| Hook | File source | Suggested flags | Best-effort |
+|------|-------------|-----------------|-------------|
+| pre-commit | `--staged` (or auto) | `--run --fail-fast` (+ optional `--test-size small,medium`) | optional |
+| pre-push | `--pre-push` | `--run --fail-fast` | **off** (fail closed) |
+
 ## How It Works
 
 1. **File Detection**: Determines changed files using this priority order:
-   - `--files-from`, `--staged`, `--head`, or `--base` if explicitly given (mutually exclusive)
+   - `--files-from`, `--staged`, `--head`, `--base`, `--diff`, or `--pre-push` if explicitly given (mutually exclusive)
    - Otherwise, **auto-detection**: piped stdin → git staged files → `git diff HEAD` (staged + unstaged)
    - Only Added, Copied, and Modified files are included (not Deleted)
+   - `--pre-push` and `--diff` operate on commit tree-ishes (not the working tree)
 2. **Package Finding**: Finds the nearest Bazel package (directory with BUILD file) for each file
 3. **Test Discovery**: Uses `bazel query` to find:
    - Test targets within the same package
@@ -133,7 +174,7 @@ Make sure to run `go install` first to ensure the binary is in your PATH.
 
 By default, Bazel query failures and config parse errors are **fatal** — the tool exits with a nonzero status so CI pipelines and pre-commit hooks detect the problem. This prevents silently missing affected tests.
 
-If you prefer a lenient mode (e.g., for local development where Bazel may not be fully available), use `--best-effort`, set `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`, or set `best_effort: true` in the config file. In this mode, query failures are logged as warnings and the tool continues with partial results. The CLI flag wins over the config file, which wins over the environment variable. Enabling it repo-wide via the config file is appropriate when this run is only a filter and an authoritative downstream gate (CI/CD) runs the full suite — note that best-effort *under-selects* on a timed-out broad query rather than falling back to running everything.
+If you prefer a lenient mode (e.g., for local **pre-commit** feedback where Bazel may not be fully available), use `--best-effort`, set `BAZEL_AFFECTED_TESTS_BEST_EFFORT=true`, or set `best_effort: true` in the config file. In this mode, query failures are logged as warnings and the tool continues with partial results. The CLI flag wins over the config file, which wins over the environment variable. Enabling it repo-wide via the config file is appropriate when this run is only a soft filter and an authoritative downstream gate (CI/CD) runs the full suite — note that best-effort *under-selects* on a timed-out broad query rather than falling back to running everything. Prefer **strict** mode (default) for **blocking pre-push** hooks so a timed-out query fails the push instead of silently under-selecting.
 
 **Bazel internal crashes** (e.g., JVM-level exceptions inside the Bazel server while fetching an external repository) are always treated as non-fatal, even without `--best-effort`. A crash is a signal that Bazel itself is broken rather than that tests are failing — propagating it would force callers (e.g., pre-commit hooks) to fall back to running the full test set, which would just re-trigger the same crash. Instead, the crashing query is logged as a warning and whatever results were computable from other queries are returned.
 
@@ -227,8 +268,9 @@ strict: false
 
 # Log Bazel query failures as warnings and continue with partial results
 # instead of failing. Enable repo-wide only when an authoritative downstream
-# gate (CI/CD) runs the full suite and this run is just a filter (e.g. a
-# pre-push hook). Overridden by --best-effort / BAZEL_AFFECTED_TESTS_BEST_EFFORT.
+# gate (CI/CD) runs the full suite and this run is just a soft filter
+# (e.g. pre-commit). Prefer false for blocking pre-push hooks.
+# Overridden by --best-effort / BAZEL_AFFECTED_TESTS_BEST_EFFORT.
 best_effort: false
 
 # Per-Bazel-query wall-clock limit as a Go duration string (default 30s).

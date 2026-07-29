@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"sort"
@@ -42,7 +43,11 @@ func main() {
 	}
 
 	if countSourceFlags(cfg) > 1 {
-		fmt.Fprintln(os.Stderr, "Error: --staged, --head, --base, and --files-from are mutually exclusive")
+		fmt.Fprintln(os.Stderr, "Error: --staged, --head, --base, --files-from, --diff, and --pre-push are mutually exclusive")
+		os.Exit(1)
+	}
+	if (cfg.prePushBase != "" || cfg.prePushTip) && !cfg.prePush {
+		fmt.Fprintln(os.Stderr, "Error: --pre-push-base and --pre-push-tip require --pre-push")
 		os.Exit(1)
 	}
 
@@ -60,43 +65,12 @@ func main() {
 // resolveTargets detects changed files, finds affected Bazel packages, queries
 // for affected test targets, and applies config-based filtering and additions.
 func resolveTargets(cfg cliConfig, c *cache.Cache, timer *stageTimer) ([]string, error) {
-	stop := timer.stage("repo-root")
-	repoRoot, err := git.RepoRoot(context.Background(), executor.NewBasicExecutor())
-	stop()
-	if err != nil {
-		return nil, fmt.Errorf("not a git repository (or any parent): %w", err)
-	}
-
-	piped := isPipe()
-	if countSourceFlags(cfg) > 0 && piped {
-		fmt.Fprintln(os.Stderr, "Warning: stdin is a pipe but an explicit flag is set; ignoring pipe input")
-	}
-
-	stop = timer.stage("changed-files")
-	changedFiles, err := getChangedFiles(cfg, piped)
-	stop()
+	repoRoot, changedFiles, repoCfg, err := detectChangedFiles(cfg, timer)
 	if err != nil {
 		return nil, err
 	}
-
 	if len(changedFiles) == 0 {
 		return nil, nil
-	}
-
-	// Load config early so ignore_paths can filter files before package resolution
-	stop = timer.stage("load-config")
-	repoCfg, err := config.LoadConfig(repoRoot)
-	stop()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if repoCfg != nil {
-		changedFiles = repoCfg.FilterIgnoredFiles(changedFiles)
-		slog.Debug("Files after ignore_paths filtering", "count", len(changedFiles))
-		if len(changedFiles) == 0 {
-			return nil, nil
-		}
 	}
 
 	maxDepth := resolveMaxParentDepth(cfg, repoCfg)
@@ -110,16 +84,12 @@ func resolveTargets(cfg cliConfig, c *cache.Cache, timer *stageTimer) ([]string,
 		return nil, nil
 	}
 
-	stop = timer.stage("find-packages")
+	stop := timer.stage("find-packages")
 	packages, unmapped := findPackages(repoRoot, changedFiles, maxDepth)
 	stop()
 	slog.Debug("Bazel packages found", "count", len(packages))
-	if len(unmapped) > 0 {
-		if strict {
-			return nil, fmt.Errorf("files not mapped to any Bazel package within max-parent-depth=%d: %v", maxDepth, unmapped)
-		}
-		slog.Warn("files not mapped to any Bazel package within max-parent-depth",
-			"max_parent_depth", maxDepth, "files", unmapped)
+	if err := handleUnmappedFiles(unmapped, maxDepth, strict); err != nil {
+		return nil, err
 	}
 
 	allTests, err := queryTestsForPackages(cfg, repoCfg, c, repoRoot, packages, timer)
@@ -136,6 +106,61 @@ func resolveTargets(cfg cliConfig, c *cache.Cache, timer *stageTimer) ([]string,
 
 	targets := mergeTargets(allTests, configTargets)
 	return applyTestSizeFilter(cfg, repoCfg, targets, timer)
+}
+
+// detectChangedFiles resolves the repo root, loads config, and returns the
+// filtered list of changed files (ignore_paths applied). An empty file list
+// with a nil error means there is nothing to test.
+func detectChangedFiles(cfg cliConfig, timer *stageTimer) (repoRoot string, files []string, repoCfg *config.Config, err error) {
+	stop := timer.stage("repo-root")
+	repoRoot, err = git.RepoRoot(context.Background(), executor.NewBasicExecutor())
+	stop()
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("not a git repository (or any parent): %w", err)
+	}
+
+	piped := isPipe()
+	// Warn only when an explicit source ignores stdin. --pre-push and
+	// --files-from - intentionally consume the pipe.
+	if countSourceFlags(cfg) > 0 && piped && !cfg.prePush && cfg.filesFrom != "-" {
+		fmt.Fprintln(os.Stderr, "Warning: stdin is a pipe but an explicit flag is set; ignoring pipe input")
+	}
+
+	stop = timer.stage("changed-files")
+	files, err = getChangedFiles(cfg, piped)
+	stop()
+	if err != nil {
+		return "", nil, nil, err
+	}
+	if len(files) == 0 {
+		return repoRoot, nil, nil, nil
+	}
+
+	stop = timer.stage("load-config")
+	repoCfg, err = config.LoadConfig(repoRoot)
+	stop()
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if repoCfg != nil {
+		files = repoCfg.FilterIgnoredFiles(files)
+		slog.Debug("Files after ignore_paths filtering", "count", len(files))
+	}
+	return repoRoot, files, repoCfg, nil
+}
+
+// handleUnmappedFiles fails under strict mode or logs a warning otherwise.
+func handleUnmappedFiles(unmapped []string, maxDepth int, strict bool) error {
+	if len(unmapped) == 0 {
+		return nil
+	}
+	if strict {
+		return fmt.Errorf("files not mapped to any Bazel package within max-parent-depth=%d: %v", maxDepth, unmapped)
+	}
+	slog.Warn("files not mapped to any Bazel package within max-parent-depth",
+		"max_parent_depth", maxDepth, "files", unmapped)
+	return nil
 }
 
 // applyTestSizeFilter restricts targets to the configured Bazel test sizes.
@@ -198,6 +223,10 @@ type cliConfig struct {
 	staged         bool
 	head           bool
 	base           string
+	diff           string // old..new or old...new tree-ish range
+	prePush        bool
+	prePushBase    string // preferred default branch for PR-scope pre-push
+	prePushTip     bool   // tip-to-tip instead of PR-scope
 	run            bool
 	failFast       bool
 	testSize       string // comma-separated sizes from --test-size; empty means unset
@@ -219,7 +248,15 @@ func parseFlags() cliConfig {
 	flag.StringVar(&cfg.filesFrom, "files-from", "", "Read changed file list from a file (use - for stdin)")
 	flag.BoolVar(&cfg.staged, "staged", false, "Use staged files only (git diff --cached)")
 	flag.BoolVar(&cfg.head, "head", false, "Use staged + unstaged files (git diff HEAD)")
-	flag.StringVar(&cfg.base, "base", "", "Use all changes vs a ref (git diff <ref>)")
+	flag.StringVar(&cfg.base, "base", "", "Use all changes vs a ref (git diff <ref> against working tree)")
+	flag.StringVar(&cfg.diff, "diff", "",
+		"Files differing between two tree-ishes: old..new (two-dot) or old...new (three-dot PR-scope); no working tree")
+	flag.BoolVar(&cfg.prePush, "pre-push", false,
+		"Read git pre-push stdin (local_ref local_oid remote_ref remote_oid) and select files from push range")
+	flag.StringVar(&cfg.prePushBase, "pre-push-base", "",
+		"With --pre-push, preferred integration branch for PR-scope (default: origin/main, main, …)")
+	flag.BoolVar(&cfg.prePushTip, "pre-push-tip", false,
+		"With --pre-push, use tip-to-tip (remote_oid..local_oid) instead of PR-scope vs integration branch")
 	flag.BoolVar(&cfg.run, "run", false, "Run bazel test with affected targets instead of printing them")
 	flag.BoolVar(&cfg.failFast, "fail-fast", false,
 		"With --run, stop bazel test after the first test failure (passes --test_keep_going=false and --test_runner_fail_fast)")
@@ -269,6 +306,12 @@ func countSourceFlags(cfg cliConfig) int {
 	if cfg.filesFrom != "" {
 		n++
 	}
+	if cfg.diff != "" {
+		n++
+	}
+	if cfg.prePush {
+		n++
+	}
 	return n
 }
 
@@ -301,60 +344,159 @@ func getChangedFiles(cfg cliConfig, piped bool) ([]string, error) {
 	ctx := context.Background()
 	exec := executor.NewBasicExecutor()
 
-	switch {
-	case cfg.filesFrom != "":
-		files, err := readFilesFrom(cfg.filesFrom)
-		if err != nil {
-			return nil, fmt.Errorf("reading files from %q: %w", cfg.filesFrom, err)
-		}
-		slog.Debug("Read files from input", "source", cfg.filesFrom, "count", len(files))
-		return files, nil
-	case cfg.staged:
+	if cfg.filesFrom != "" {
+		return loadFilesFrom(cfg.filesFrom)
+	}
+	if cfg.staged {
 		files, err := git.GetStagedFiles(ctx, exec)
 		if err != nil {
 			return nil, fmt.Errorf("getting staged files: %w", err)
 		}
 		slog.Debug("Staged files found", "count", len(files))
 		return files, nil
-	case cfg.head:
+	}
+	if cfg.head {
 		files, err := git.GetHeadFiles(ctx, exec)
 		if err != nil {
 			return nil, fmt.Errorf("getting HEAD diff files: %w", err)
 		}
 		slog.Debug("HEAD diff files found", "count", len(files))
 		return files, nil
-	case cfg.base != "":
+	}
+	if cfg.base != "" {
 		files, err := git.GetDiffFiles(ctx, exec, cfg.base)
 		if err != nil {
 			return nil, fmt.Errorf("getting diff files vs %q: %w", cfg.base, err)
 		}
 		slog.Debug("Base diff files found", "base", cfg.base, "count", len(files))
 		return files, nil
-	default:
-		// Auto mode: pipe → staged → HEAD
-		if piped {
-			files, err := readFilesFrom("-")
-			if err != nil {
-				return nil, fmt.Errorf("reading from stdin pipe: %w", err)
-			}
-			slog.Debug("Read files from pipe", "count", len(files))
-			return files, nil
-		}
-		files, err := git.GetStagedFiles(ctx, exec)
+	}
+	if cfg.diff != "" {
+		files, err := filesFromDiffSpec(ctx, exec, cfg.diff)
 		if err != nil {
-			return nil, fmt.Errorf("getting staged files: %w", err)
+			return nil, err
 		}
-		if len(files) > 0 {
-			slog.Debug("Auto: using staged files", "count", len(files))
-			return files, nil
-		}
-		files, err = git.GetHeadFiles(ctx, exec)
-		if err != nil {
-			return nil, fmt.Errorf("getting HEAD diff files: %w", err)
-		}
-		slog.Debug("Auto: using HEAD diff files", "count", len(files))
+		slog.Debug("Diff range files found", "diff", cfg.diff, "count", len(files))
 		return files, nil
 	}
+	if cfg.prePush {
+		return loadPrePushFiles(ctx, exec, cfg)
+	}
+	return loadAutoChangedFiles(ctx, exec, piped)
+}
+
+func loadFilesFrom(path string) ([]string, error) {
+	files, err := readFilesFrom(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading files from %q: %w", path, err)
+	}
+	slog.Debug("Read files from input", "source", path, "count", len(files))
+	return files, nil
+}
+
+func loadPrePushFiles(ctx context.Context, exec executor.Executor, cfg cliConfig) ([]string, error) {
+	mode := git.PushModePR
+	if cfg.prePushTip {
+		mode = git.PushModeTip
+	}
+	files, err := filesFromPrePush(ctx, exec, os.Stdin, cfg.prePushBase, mode)
+	if err != nil {
+		return nil, err
+	}
+	slog.Debug("Pre-push files found", "count", len(files), "tip_mode", cfg.prePushTip)
+	return files, nil
+}
+
+func loadAutoChangedFiles(ctx context.Context, exec executor.Executor, piped bool) ([]string, error) {
+	if piped {
+		files, err := readFilesFrom("-")
+		if err != nil {
+			return nil, fmt.Errorf("reading from stdin pipe: %w", err)
+		}
+		slog.Debug("Read files from pipe", "count", len(files))
+		return files, nil
+	}
+	files, err := git.GetStagedFiles(ctx, exec)
+	if err != nil {
+		return nil, fmt.Errorf("getting staged files: %w", err)
+	}
+	if len(files) > 0 {
+		slog.Debug("Auto: using staged files", "count", len(files))
+		return files, nil
+	}
+	files, err = git.GetHeadFiles(ctx, exec)
+	if err != nil {
+		return nil, fmt.Errorf("getting HEAD diff files: %w", err)
+	}
+	slog.Debug("Auto: using HEAD diff files", "count", len(files))
+	return files, nil
+}
+
+// filesFromDiffSpec resolves --diff old..new / old...new to a path list.
+func filesFromDiffSpec(ctx context.Context, exec executor.Executor, spec string) ([]string, error) {
+	oldRev, newRev, threeDot, err := git.ParseDiffSpec(spec)
+	if err != nil {
+		return nil, fmt.Errorf("parsing --diff: %w", err)
+	}
+	if threeDot {
+		files, err := git.GetDiffRange(ctx, exec, oldRev+"..."+newRev)
+		if err != nil {
+			return nil, fmt.Errorf("getting three-dot diff %s...%s: %w", oldRev, newRev, err)
+		}
+		return files, nil
+	}
+	files, err := git.GetDiffBetween(ctx, exec, oldRev, newRev)
+	if err != nil {
+		return nil, fmt.Errorf("getting diff %s..%s: %w", oldRev, newRev, err)
+	}
+	return files, nil
+}
+
+// filesFromPrePush reads git pre-push protocol lines and returns the changed-file set.
+func filesFromPrePush(ctx context.Context, exec executor.Executor, r io.Reader, preferredBase string, mode git.PushMode) ([]string, error) {
+	updates, err := git.ParsePushUpdates(r)
+	if err != nil {
+		return nil, fmt.Errorf("parsing pre-push stdin: %w", err)
+	}
+	if len(updates) == 0 {
+		return nil, nil
+	}
+
+	defaultBase, err := resolvePrePushBase(ctx, exec, preferredBase, updates, mode)
+	if err != nil {
+		return nil, err
+	}
+
+	files, err := git.FilesFromPushUpdates(ctx, exec, updates, defaultBase, mode)
+	if err != nil {
+		return nil, fmt.Errorf("resolving pre-push changed files: %w", err)
+	}
+	return files, nil
+}
+
+// resolvePrePushBase returns the integration branch when PR-scope is needed.
+func resolvePrePushBase(ctx context.Context, exec executor.Executor, preferred string, updates []git.PushUpdate, mode git.PushMode) (string, error) {
+	if !prePushNeedsBase(updates, mode) {
+		return "", nil
+	}
+	defaultBase, err := git.ResolveDefaultBase(ctx, exec, preferred)
+	if err != nil {
+		return "", fmt.Errorf("resolving pre-push default base: %w", err)
+	}
+	slog.Debug("Resolved pre-push default base", "base", defaultBase)
+	return defaultBase, nil
+}
+
+func prePushNeedsBase(updates []git.PushUpdate, mode git.PushMode) bool {
+	if mode == git.PushModePR {
+		return true
+	}
+	for _, u := range updates {
+		if !git.IsZeroOID(u.LocalOID) && strings.HasPrefix(u.LocalRef, "refs/heads/") && git.IsZeroOID(u.RemoteOID) {
+			return true
+		}
+	}
+	return false
 }
 
 func getCacheKey(c *cache.Cache, noCache bool, repoRoot string) string {

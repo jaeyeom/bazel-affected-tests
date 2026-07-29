@@ -2,15 +2,19 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jaeyeom/bazel-affected-tests/internal/cache"
 	"github.com/jaeyeom/bazel-affected-tests/internal/config"
+	"github.com/jaeyeom/bazel-affected-tests/internal/git"
 	"github.com/jaeyeom/bazel-affected-tests/internal/query"
 	executor "github.com/jaeyeom/go-cmdexec"
 )
@@ -127,9 +131,12 @@ func TestCountSourceFlags(t *testing.T) {
 		{"head only", cliConfig{head: true}, 1},
 		{"base only", cliConfig{base: "main"}, 1},
 		{"files-from only", cliConfig{filesFrom: "list.txt"}, 1},
+		{"diff only", cliConfig{diff: "a..b"}, 1},
+		{"pre-push only", cliConfig{prePush: true}, 1},
 		{"staged and head", cliConfig{staged: true, head: true}, 2},
 		{"staged and base", cliConfig{staged: true, base: "main"}, 2},
-		{"all four", cliConfig{staged: true, head: true, base: "main", filesFrom: "-"}, 4},
+		{"pre-push and staged", cliConfig{prePush: true, staged: true}, 2},
+		{"all six", cliConfig{staged: true, head: true, base: "main", filesFrom: "-", diff: "a..b", prePush: true}, 6},
 	}
 
 	for _, tt := range tests {
@@ -138,6 +145,83 @@ func TestCountSourceFlags(t *testing.T) {
 				t.Errorf("countSourceFlags() = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFilesFromDiffSpec(t *testing.T) {
+	t.Run("two-dot", func(t *testing.T) {
+		mockExec := executor.NewMockExecutor()
+		mockExec.ExpectCommandWithArgs("git", "diff", "old", "new", "--name-only", "--diff-filter=ACM").
+			WillSucceed("a.go\nb.go", 0).
+			Build()
+
+		got, err := filesFromDiffSpec(context.Background(), mockExec, "old..new")
+		if err != nil {
+			t.Fatalf("filesFromDiffSpec() error: %v", err)
+		}
+		want := []string{"a.go", "b.go"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("filesFromDiffSpec() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("three-dot", func(t *testing.T) {
+		mockExec := executor.NewMockExecutor()
+		mockExec.ExpectCommandWithArgs("git", "diff", "origin/main...HEAD", "--name-only", "--diff-filter=ACM").
+			WillSucceed("c.go", 0).
+			Build()
+
+		got, err := filesFromDiffSpec(context.Background(), mockExec, "origin/main...HEAD")
+		if err != nil {
+			t.Fatalf("filesFromDiffSpec() error: %v", err)
+		}
+		if len(got) != 1 || got[0] != "c.go" {
+			t.Errorf("filesFromDiffSpec() = %v, want [c.go]", got)
+		}
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		_, err := filesFromDiffSpec(context.Background(), executor.NewMockExecutor(), "noscale")
+		if err == nil {
+			t.Fatal("expected error for invalid --diff")
+		}
+	})
+}
+
+func TestFilesFromPrePush(t *testing.T) {
+	localOID := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	remoteOID := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	mb := "cccccccccccccccccccccccccccccccccccccccc"
+
+	input := fmt.Sprintf("refs/heads/feature %s refs/heads/feature %s\n", localOID, remoteOID)
+
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("git", "rev-parse", "--verify", "--quiet", "origin/main").
+		WillSucceed(mb+"\n", 0).
+		Build()
+	mockExec.ExpectCommandWithArgs("git", "merge-base", "origin/main", localOID).
+		WillSucceed(mb+"\n", 0).
+		Build()
+	mockExec.ExpectCommandWithArgs("git", "diff", mb, localOID, "--name-only", "--diff-filter=ACM").
+		WillSucceed("pkg/foo.go", 0).
+		Build()
+
+	got, err := filesFromPrePush(context.Background(), mockExec, strings.NewReader(input), "", git.PushModePR)
+	if err != nil {
+		t.Fatalf("filesFromPrePush() error: %v", err)
+	}
+	if len(got) != 1 || got[0] != "pkg/foo.go" {
+		t.Errorf("filesFromPrePush() = %v, want [pkg/foo.go]", got)
+	}
+}
+
+func TestFilesFromPrePush_EmptyStdin(t *testing.T) {
+	got, err := filesFromPrePush(context.Background(), executor.NewMockExecutor(), strings.NewReader(""), "", git.PushModePR)
+	if err != nil {
+		t.Fatalf("filesFromPrePush() error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("filesFromPrePush() = %v, want empty", got)
 	}
 }
 

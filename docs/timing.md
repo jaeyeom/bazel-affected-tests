@@ -42,7 +42,9 @@ Detects the input set of changed files. The exact source depends on flags:
 - `--files-from <path>` — reads lines from a file (or stdin via `-`)
 - `--staged` — `git diff --cached --name-only`
 - `--head` — `git diff HEAD --name-only` (staged + unstaged)
-- `--base <ref>` — `git diff <ref> --name-only`
+- `--base <ref>` — `git diff <ref> --name-only` (working tree vs ref)
+- `--diff old..new` / `old...new` — tree-ish range (no working tree)
+- `--pre-push` — git pre-push stdin → push-range file set
 - otherwise (auto): piped stdin → staged → HEAD
 
 Cost is dominated by the `git diff` invocation against your working tree.

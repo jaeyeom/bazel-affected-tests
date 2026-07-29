@@ -282,6 +282,119 @@ func TestGetDiffFiles(t *testing.T) {
 	}
 }
 
+func TestGetDiffBetween(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("git", "diff", "abc", "def", "--name-only", "--diff-filter=ACM").
+		WillSucceed("a.go\nb.go", 0).
+		Build()
+
+	got, err := GetDiffBetween(context.Background(), mockExec, "abc", "def")
+	if err != nil {
+		t.Fatalf("GetDiffBetween() error: %v", err)
+	}
+	want := []string{"a.go", "b.go"}
+	if len(got) != len(want) {
+		t.Fatalf("GetDiffBetween() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("GetDiffBetween()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestGetDiffRange(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("git", "diff", "origin/main...HEAD", "--name-only", "--diff-filter=ACM").
+		WillSucceed("pkg/x.go", 0).
+		Build()
+
+	got, err := GetDiffRange(context.Background(), mockExec, "origin/main...HEAD")
+	if err != nil {
+		t.Fatalf("GetDiffRange() error: %v", err)
+	}
+	if len(got) != 1 || got[0] != "pkg/x.go" {
+		t.Errorf("GetDiffRange() = %v, want [pkg/x.go]", got)
+	}
+}
+
+func TestMergeBase(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("git", "merge-base", "origin/main", "abc123").
+		WillSucceed("baseoid\n", 0).
+		Build()
+
+	got, err := MergeBase(context.Background(), mockExec, "origin/main", "abc123")
+	if err != nil {
+		t.Fatalf("MergeBase() error: %v", err)
+	}
+	if got != "baseoid" {
+		t.Errorf("MergeBase() = %q, want baseoid", got)
+	}
+}
+
+func TestMergeBase_Error(t *testing.T) {
+	mockExec := executor.NewMockExecutor()
+	mockExec.ExpectCommandWithArgs("git", "merge-base", "a", "b").
+		WillError(errors.New("no merge base")).
+		Build()
+
+	_, err := MergeBase(context.Background(), mockExec, "a", "b")
+	if err == nil {
+		t.Fatal("MergeBase() expected error, got nil")
+	}
+}
+
+func TestResolveDefaultBase(t *testing.T) {
+	t.Run("preferred exists", func(t *testing.T) {
+		mockExec := executor.NewMockExecutor()
+		mockExec.ExpectCommandWithArgs("git", "rev-parse", "--verify", "--quiet", "upstream/develop").
+			WillSucceed("abc\n", 0).
+			Build()
+
+		got, err := ResolveDefaultBase(context.Background(), mockExec, "upstream/develop")
+		if err != nil {
+			t.Fatalf("ResolveDefaultBase() error: %v", err)
+		}
+		if got != "upstream/develop" {
+			t.Errorf("ResolveDefaultBase() = %q, want upstream/develop", got)
+		}
+	})
+
+	t.Run("falls back to origin/main", func(t *testing.T) {
+		mockExec := executor.NewMockExecutor()
+		// preferred missing
+		mockExec.ExpectCommandWithArgs("git", "rev-parse", "--verify", "--quiet", "missing").
+			WillError(errors.New("missing")).
+			Build()
+		mockExec.ExpectCommandWithArgs("git", "rev-parse", "--verify", "--quiet", "origin/main").
+			WillSucceed("abc\n", 0).
+			Build()
+
+		got, err := ResolveDefaultBase(context.Background(), mockExec, "missing")
+		if err != nil {
+			t.Fatalf("ResolveDefaultBase() error: %v", err)
+		}
+		if got != "origin/main" {
+			t.Errorf("ResolveDefaultBase() = %q, want origin/main", got)
+		}
+	})
+
+	t.Run("none found", func(t *testing.T) {
+		mockExec := executor.NewMockExecutor()
+		for _, c := range []string{"origin/main", "main", "origin/master", "master"} {
+			mockExec.ExpectCommandWithArgs("git", "rev-parse", "--verify", "--quiet", c).
+				WillError(errors.New("missing")).
+				Build()
+		}
+
+		_, err := ResolveDefaultBase(context.Background(), mockExec, "")
+		if err == nil {
+			t.Fatal("ResolveDefaultBase() expected error when no candidate exists")
+		}
+	})
+}
+
 func containsStr(s, substr string) bool {
 	if len(substr) == 0 {
 		return true
