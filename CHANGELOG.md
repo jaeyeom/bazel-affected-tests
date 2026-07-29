@@ -9,12 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `--pre-push` flag to read git pre-push stdin and select files from the push
+  range (PR-scope vs integration branch by default; correct for rebase
+  force-with-lease). Optional `--pre-push-base` and `--pre-push-tip`.
+- `--diff <old>..<new>` / `--diff <old>...<new>` for tree-ish range file
+  selection without using the working tree
+- Example pre-push hook under `examples/pre-push`
 - `--test-size` flag and `test_size_filters` config key to keep only affected
   tests of the given Bazel sizes (`small`, `medium`, `large`, `enormous`).
   Applied after affected-test discovery for both list and `--run` modes.
   Default when unset is no size filter (all sizes).
 - `--fail-fast` flag for use with `--run`: stops `bazel test` after the first
   test failure (`--test_keep_going=false` and `--test_runner_fail_fast`)
+
+### Changed
+
+- Document pre-commit vs pre-push usage; recommend against `--best-effort` for
+  blocking pre-push gates
 
 ## [v0.5.0] - 2026-04-22
 

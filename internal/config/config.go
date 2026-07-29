@@ -44,9 +44,10 @@ type Config struct {
 	Strict bool `yaml:"strict"`
 	// BestEffort, when true, logs Bazel query failures as warnings and
 	// continues with partial results instead of failing. Unset (nil) means
-	// defer to the CLI flag / environment variable. This is safe to enable
+	// defer to the CLI flag / environment variable. Safe to enable
 	// repo-wide only when an authoritative downstream gate (CI/CD) runs the
-	// full test suite; the pre-push run is then just a filter.
+	// full test suite and this run is a soft filter (e.g. pre-commit). Prefer
+	// false for blocking pre-push hooks so query failures fail the push.
 	BestEffort *bool `yaml:"best_effort"`
 	// QueryTimeout is the per-query wall-clock limit as a Go duration string
 	// (e.g. "60s", "2m"). Empty means use the built-in default. Large

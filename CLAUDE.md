@@ -11,7 +11,8 @@
 
 - `internal/query` owns all Bazel query interactions — other packages must not shell out to `bazel` directly
 - `internal/config` parses `.bazel-affected-tests.yaml` — see `examples/` for the config schema
-- Input auto-detection order (no flags): piped stdin > staged files > HEAD diff. Explicit flags (`--staged`, `--head`, `--base`, `--files-from`) are mutually exclusive with each other
+- Input auto-detection order (no flags): piped stdin > staged files > HEAD diff. Explicit flags (`--staged`, `--head`, `--base`, `--files-from`, `--diff`, `--pre-push`) are mutually exclusive with each other
+- Pre-push hooks must use `--pre-push` (or `--diff` / `--files-from` with tree-ish ranges), not `--staged`/`--head`/auto; prefer strict mode (no best-effort) for blocking push gates
 - Cache key is derived from the repo's Bazel workspace state so it invalidates when BUILD files change
 
 ## Conventions

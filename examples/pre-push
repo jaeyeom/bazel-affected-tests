@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Example git pre-push hook for bazel-affected-tests.
+#
+# Install:
+#   cp examples/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# Or point your hook manager (githooks, husky, lefthook, …) at this script.
+#
+# Git invokes this with:
+#   $1 = remote name, $2 = remote URL
+# and feeds one line per ref update on stdin:
+#   <local ref> <local oid> <remote ref> <remote oid>
+#
+# --pre-push reads that protocol and selects files from the push range using
+# PR-scope (merge-base with origin/main|main|… through the local tip). That is
+# the right default after rebase + force-with-lease.
+#
+# Do NOT use --staged / --head / auto mode here: a clean working tree yields
+# zero files and the push would succeed without running tests.
+#
+# Do NOT enable --best-effort for a blocking pre-push gate: query timeouts
+# under-select and still exit 0.
+set -euo pipefail
+
+# remote name and URL ($1, $2) are unused; do not forward them to the tool.
+exec bazel-affected-tests --pre-push --run --fail-fast
